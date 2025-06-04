@@ -1,7 +1,6 @@
 import nextra from "nextra";
 
 const isProduction = process.env.NODE_ENV === "production";
-const assetPrefix = isProduction ? "/whisper-docs" : "";
 
 /**
  * @type {import('next').NextConfig}
@@ -14,8 +13,8 @@ const nextConfig = {
     reactStrictMode: true,
     swcMinify: true,
     trailingSlash: true,
-    assetPrefix,
-    basePath: assetPrefix,
+    assetPrefix: isProduction ? "/whisper-docs/" : "",
+    basePath: isProduction ? "/whisper-docs" : "",
 };
 
 const withNextra = nextra({
