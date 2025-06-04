@@ -1,0 +1,31 @@
+{
+  "index": {
+    "title": "Introduction",
+    "type": "page",
+    "display": "hidden"
+  },
+  "demo": {
+    "title": "Demo & Introduction",
+    "type": "page"
+  },
+  "protocol": {
+    "title": "Protocol",
+    "type": "page"
+  },
+  "sequence": {
+    "title": "Sequence Flow",
+    "type": "page"
+  },
+  "database": {
+    "title": "Database Design",
+    "type": "page"
+  },
+  "uml": {
+    "title": "UML Structure",
+    "type": "page"
+  },
+  "stress-test": {
+    "title": "Stress Testing",
+    "type": "page"
+  }
+}

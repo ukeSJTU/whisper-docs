@@ -1,0 +1,214 @@
+import { Callout } from 'nextra/components'
+import MermaidDiagram from '../components/MermaidDiagram'
+
+# Sequence Flow
+
+<Callout type="info">
+  This section provides a detailed view of the message flow within the Whisper system, illustrating how different components interact during typical operations.
+</Callout>
+
+## Message Delivery Sequence
+
+The following diagram illustrates the sequence of events that occurs when a message is sent from one user to another:
+
+<MermaidDiagram 
+  id="message-sequence" 
+  content={`
+sequenceDiagram
+    participant Sender as Sender Client
+    participant Server as Whisper Server
+    participant DB as Database
+    participant Recipient as Recipient Client
+
+    Sender->>Sender: Compose message
+    Sender->>Sender: Encrypt message with recipient's public key
+    
+    Sender->>Server: Send encrypted message
+    activate Server
+    Server->>DB: Store message
+    DB-->>Server: Confirm storage
+    
+    alt Recipient Online
+        Server->>Recipient: Forward encrypted message
+        activate Recipient
+        Recipient->>Recipient: Decrypt message with private key
+        Recipient->>Recipient: Display message to user
+        Recipient->>Server: Send delivery receipt
+        Server->>DB: Update message status
+        Server->>Sender: Confirm delivery
+        deactivate Recipient
+    else Recipient Offline
+        Server->>DB: Queue message for later delivery
+        Server->>Sender: Confirm message queued
+    end
+    
+    deactivate Server
+    
+    Note over Recipient: When recipient comes online
+    Recipient->>Server: Establish connection
+    Server->>DB: Retrieve queued messages
+    DB-->>Server: Return queued messages
+    Server->>Recipient: Send queued messages
+    Recipient->>Recipient: Decrypt and display messages
+    Recipient->>Server: Send delivery receipts
+    Server->>DB: Update message statuses
+    Server->>Sender: Confirm delivery (if sender online)
+  `}
+/>
+
+## Authentication Flow
+
+The following diagram illustrates the authentication process when a user logs into Whisper:
+
+<MermaidDiagram 
+  id="auth-sequence" 
+  content={`
+sequenceDiagram
+    participant User as User
+    participant Client as Client Application
+    participant Auth as Authentication Service
+    participant Key as Key Management Service
+    participant DB as User Database
+    
+    User->>Client: Enter credentials
+    Client->>Auth: Submit login request
+    activate Auth
+    
+    Auth->>DB: Validate credentials
+    DB-->>Auth: Credentials valid
+    
+    Auth->>Key: Request key material
+    Key-->>Auth: Return key material
+    
+    Auth->>Auth: Generate session tokens
+    Auth-->>Client: Return auth tokens + initial key material
+    deactivate Auth
+    
+    Client->>Client: Store tokens securely
+    Client->>Client: Initialize encryption system
+    
+    Client->>User: Show authenticated UI
+  `}
+/>
+
+## Group Chat Creation
+
+This diagram shows the process of creating a new group chat:
+
+<MermaidDiagram 
+  id="group-chat-sequence" 
+  content={`
+sequenceDiagram
+    participant Creator as Group Creator
+    participant Server as Whisper Server
+    participant DB as Database
+    participant Members as Group Members
+    
+    Creator->>Creator: Initiate group creation
+    Creator->>Creator: Generate group key pair
+    
+    Creator->>Server: Create group request
+    activate Server
+    Server->>DB: Create group record
+    DB-->>Server: Group created
+    Server-->>Creator: Group creation confirmed
+    deactivate Server
+    
+    Creator->>Creator: Encrypt group key for each member
+    
+    loop For each member
+        Creator->>Server: Add member request (with encrypted key)
+        Server->>DB: Add member to group
+        Server->>Members: Send group invitation
+        Members->>Members: Decrypt group key
+        Members->>Server: Accept invitation
+        Server->>DB: Update member status
+        Server->>Creator: Member added confirmation
+    end
+    
+    Server->>All: Broadcast group ready notification
+  `}
+/>
+
+## Message Synchronization Across Devices
+
+This diagram illustrates how messages are synchronized across multiple devices belonging to the same user:
+
+<MermaidDiagram 
+  id="sync-sequence" 
+  content={`
+sequenceDiagram
+    participant Device1 as Device 1
+    participant Device2 as Device 2
+    participant Server as Whisper Server
+    participant DB as Database
+    
+    Device1->>Device1: Generate message
+    Device1->>Device1: Encrypt for recipient
+    Device1->>Device1: Encrypt copy for own devices
+    
+    Device1->>Server: Send encrypted message
+    Server->>DB: Store message
+    
+    alt Recipient is self device
+        Server->>Device2: Forward encrypted message
+        Device2->>Device2: Decrypt with device key
+        Device2->>Device2: Mark as synchronized
+        Device2->>Server: Confirm sync
+        Server->>DB: Update sync status
+    else Recipient is another user
+        Server->>Recipient: Forward to recipient
+        Server->>Device2: Send copy for synchronization
+        Device2->>Device2: Decrypt with device key
+        Device2->>Device2: Mark as synchronized
+        Device2->>Server: Confirm sync
+        Server->>DB: Update sync status
+    end
+  `}
+/>
+
+## Media Sharing Flow
+
+The following sequence diagram illustrates how media files are shared between users:
+
+<MermaidDiagram 
+  id="media-sequence" 
+  content={`
+sequenceDiagram
+    participant Sender as Sender
+    participant Server as Whisper Server
+    participant Storage as Media Storage
+    participant Recipient as Recipient
+    
+    Sender->>Sender: Select media file
+    Sender->>Sender: Generate encryption key
+    Sender->>Sender: Encrypt media with key
+    
+    Sender->>Server: Request upload URL
+    Server->>Storage: Request temporary URL
+    Storage-->>Server: Return signed URL
+    Server-->>Sender: Return upload URL
+    
+    Sender->>Storage: Upload encrypted media
+    Storage-->>Sender: Confirm upload
+    
+    Sender->>Sender: Create message with media reference and key
+    Sender->>Sender: Encrypt message for recipient
+    Sender->>Server: Send encrypted message
+    
+    Server->>Recipient: Forward encrypted message
+    Recipient->>Recipient: Decrypt message
+    Recipient->>Recipient: Extract media reference and key
+    
+    Recipient->>Storage: Request encrypted media
+    Storage-->>Recipient: Return encrypted media
+    Recipient->>Recipient: Decrypt media with key
+    Recipient->>Recipient: Display media
+  `}
+/>
+
+export default ({ children }) => (
+  <div className="max-w-screen-xl mx-auto px-4 py-8">
+    {children}
+  </div>
+);

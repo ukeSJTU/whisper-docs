@@ -1,0 +1,69 @@
+import { Card, Cards } from 'nextra/components'
+import { MessageCircle, BookOpen, ActivitySquare, Database, Component, LineChart } from 'lucide-react'
+
+# Whisper Chat Documentation
+
+Welcome to the official documentation for Whisper, a modern, secure web-based chat application designed for real-time communication. This documentation provides a comprehensive overview of Whisper, including its architecture, protocols, and performance metrics.
+
+<div className="mt-8 mb-16 text-lg text-gray-600 dark:text-gray-400 max-w-3xl">
+  Whisper enables seamless, encrypted messaging with a focus on privacy, performance, and user experience.
+</div>
+
+<Cards>
+  <Card 
+    icon={<MessageCircle />} 
+    title="Demo & Introduction" 
+    href="/demo" 
+    arrow 
+  />
+  <Card 
+    icon={<BookOpen />} 
+    title="Protocol" 
+    href="/protocol" 
+    arrow 
+  />
+  <Card 
+    icon={<ActivitySquare />} 
+    title="Sequence Flow" 
+    href="/sequence" 
+    arrow 
+  />
+  <Card 
+    icon={<Database />} 
+    title="Database Design" 
+    href="/database" 
+    arrow 
+  />
+  <Card 
+    icon={<Component />} 
+    title="UML Structure" 
+    href="/uml" 
+    arrow 
+  />
+  <Card 
+    icon={<LineChart />} 
+    title="Stress Testing" 
+    href="/stress-test" 
+    arrow 
+  />
+</Cards>
+
+## Key Features
+
+Whisper is built with modern web technologies and designed with user privacy and performance in mind:
+
+- **End-to-End Encryption**: All messages are encrypted using state-of-the-art protocols
+- **Real-Time Communication**: Instant message delivery with typing indicators
+- **Multi-Device Support**: Seamlessly sync conversations across all your devices
+- **Media Sharing**: Easily share images, documents, and other media
+- **Comprehensive API**: Extensible architecture for custom integrations
+
+## Getting Started
+
+To start using Whisper, you can [sign up for an account](https://whisper.example.com/signup) or explore our detailed documentation to learn more about how Whisper works behind the scenes.
+
+export default ({ children }) => (
+  <div className="max-w-screen-xl mx-auto px-4 py-8">
+    {children}
+  </div>
+);

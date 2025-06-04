@@ -1,0 +1,579 @@
+import { Callout } from 'nextra/components'
+import MermaidDiagram from '../components/MermaidDiagram'
+
+# UML Structure
+
+<Callout type="info">
+  This page presents the Unified Modeling Language (UML) diagrams that describe the architecture and class relationships of the Whisper Chat application.
+</Callout>
+
+## Core Component Structure
+
+The following class diagram illustrates the main components of the Whisper system and their relationships:
+
+<MermaidDiagram 
+  id="whisper-class-diagram" 
+  content={`
+classDiagram
+    class User {
+        +UUID id
+        +String username
+        +String email
+        +String displayName
+        +String profilePicture
+        +UserStatus status
+        +DateTime lastSeen
+        +createConversation()
+        +sendMessage()
+        +updateProfile()
+    }
+
+    class UserStatus {
+        <<enumeration>>
+        ONLINE
+        AWAY
+        DO_NOT_DISTURB
+        OFFLINE
+    }
+
+    class Conversation {
+        +UUID id
+        +ConversationType type
+        +String title
+        +User createdBy
+        +DateTime createdAt
+        +List~Participant~ participants
+        +List~Message~ messages
+        +addParticipant()
+        +removeParticipant()
+        +getMessages()
+    }
+
+    class ConversationType {
+        <<enumeration>>
+        DIRECT
+        GROUP
+    }
+
+    class Participant {
+        +UUID id
+        +User user
+        +Conversation conversation
+        +ParticipantRole role
+        +DateTime joinedAt
+        +Message lastReadMessage
+        +markAsRead()
+        +leaveConversation()
+        +changeRole()
+    }
+
+    class ParticipantRole {
+        <<enumeration>>
+        ADMIN
+        MEMBER
+    }
+
+    class Message {
+        +UUID id
+        +Conversation conversation
+        +User sender
+        +MessageType type
+        +String content
+        +Boolean encrypted
+        +DateTime sentAt
+        +DateTime editedAt
+        +Message parentMessage
+        +List~Reaction~ reactions
+        +List~Media~ attachments
+        +edit()
+        +delete()
+        +react()
+    }
+
+    class MessageType {
+        <<enumeration>>
+        TEXT
+        MEDIA
+        SYSTEM
+    }
+
+    class Media {
+        +UUID id
+        +Message message
+        +MediaType type
+        +String fileName
+        +Long fileSize
+        +String mimeType
+        +String storagePath
+        +String thumbnailPath
+        +Map~String,Object~ metadata
+        +download()
+        +generatePreview()
+    }
+
+    class MediaType {
+        <<enumeration>>
+        IMAGE
+        VIDEO
+        AUDIO
+        DOCUMENT
+    }
+
+    class Reaction {
+        +UUID id
+        +Message message
+        +User user
+        +String emoji
+        +DateTime createdAt
+    }
+
+    class EncryptionService {
+        -KeyPair identityKey
+        -Map~UUID,SessionKey~ sessions
+        +initializeKeys()
+        +createSession()
+        +encryptMessage()
+        +decryptMessage()
+        +rotateKeys()
+    }
+
+    class NotificationService {
+        +registerDevice()
+        +unregisterDevice()
+        +sendNotification()
+        +updateBadgeCount()
+    }
+
+    class MessageSyncService {
+        +syncMessages()
+        +handleConflicts()
+        +markAsSynced()
+    }
+
+    class PresenceService {
+        +updateStatus()
+        +subscribeToPresence()
+        +unsubscribeFromPresence()
+    }
+
+    User "1" -- "n" Conversation : creates
+    User "1" -- "n" Participant : has role
+    User "1" -- "n" Message : sends
+    User "1" -- "n" Reaction : adds
+    
+    Conversation "1" -- "n" Participant : contains
+    Conversation "1" -- "n" Message : contains
+    
+    Participant "1" -- "1" User : represents
+    
+    Message "0..1" -- "n" Message : replies to
+    Message "1" -- "n" Reaction : receives
+    Message "1" -- "n" Media : attaches
+    
+    User ..> EncryptionService : uses
+    User ..> NotificationService : receives
+    User ..> MessageSyncService : syncs
+    User ..> PresenceService : updates
+  `}
+/>
+
+## Architecture Layers
+
+This diagram illustrates the layered architecture of the Whisper application:
+
+<MermaidDiagram 
+  id="architecture-layers" 
+  content={`
+classDiagram
+    class PresentationLayer {
+        +Components
+        +Pages
+        +Hooks
+        +Context Providers
+        +UI State Management
+    }
+    
+    class ApplicationLayer {
+        +Services
+        +Controllers
+        +Event Handlers
+        +State Management
+        +Business Logic
+    }
+    
+    class DomainLayer {
+        +Entities
+        +Value Objects
+        +Domain Events
+        +Repositories (interfaces)
+        +Domain Services
+    }
+    
+    class InfrastructureLayer {
+        +API Clients
+        +Repository Implementations
+        +WebSocket Clients
+        +Storage Adapters
+        +Authentication Providers
+        +Encryption Utilities
+    }
+    
+    PresentationLayer --> ApplicationLayer : uses
+    ApplicationLayer --> DomainLayer : uses
+    ApplicationLayer --> InfrastructureLayer : uses
+    DomainLayer <.. InfrastructureLayer : implements
+  `}
+/>
+
+## Message Encryption Flow
+
+The following diagram illustrates how message encryption works within Whisper:
+
+<MermaidDiagram 
+  id="encryption-flow" 
+  content={`
+classDiagram
+    class EncryptionManager {
+        -KeyStore keyStore
+        -SessionManager sessionManager
+        +initializeKeys()
+        +encryptMessage()
+        +decryptMessage()
+        +rotateKeys()
+    }
+    
+    class KeyStore {
+        -Map~String,Key~ keys
+        +generateKeyPair()
+        +storeKey()
+        +retrieveKey()
+        +deleteKey()
+    }
+    
+    class SessionManager {
+        -Map~UUID,Session~ sessions
+        +createSession()
+        +getSession()
+        +updateSession()
+        +closeSession()
+    }
+    
+    class Session {
+        -UUID id
+        -UUID participantId
+        -SymmetricKey currentKey
+        -List~SymmetricKey~ previousKeys
+        -Int messageCounter
+        +encrypt()
+        +decrypt()
+        +ratchetForward()
+    }
+    
+    class Message {
+        +UUID id
+        +String encryptedContent
+        +Int messageNumber
+        +byte[] iv
+        +encrypt()
+        +decrypt()
+    }
+    
+    EncryptionManager "1" --> "1" KeyStore : uses
+    EncryptionManager "1" --> "1" SessionManager : uses
+    SessionManager "1" --> "n" Session : manages
+    Session "1" --> "n" Message : encrypts/decrypts
+  `}
+/>
+
+## Notification System
+
+This diagram shows the components involved in Whisper's notification system:
+
+<MermaidDiagram 
+  id="notification-system" 
+  content={`
+classDiagram
+    class NotificationManager {
+        +registerDevice()
+        +unregisterDevice()
+        +sendNotification()
+        +scheduleNotification()
+        +cancelNotification()
+    }
+    
+    class NotificationChannel {
+        <<interface>>
+        +send()
+        +cancel()
+    }
+    
+    class PushNotificationChannel {
+        -PushProvider provider
+        +send()
+        +cancel()
+    }
+    
+    class EmailNotificationChannel {
+        -EmailService emailService
+        +send()
+        +cancel()
+    }
+    
+    class InAppNotificationChannel {
+        -WebSocketService socketService
+        +send()
+        +cancel()
+    }
+    
+    class Notification {
+        +UUID id
+        +UUID recipientId
+        +String title
+        +String body
+        +Map~String,String~ data
+        +NotificationType type
+        +DateTime createdAt
+        +DateTime scheduledFor
+        +NotificationPriority priority
+    }
+    
+    class NotificationPreferences {
+        +UUID userId
+        +Boolean pushEnabled
+        +Boolean emailEnabled
+        +Boolean inAppEnabled
+        +Map~NotificationType,Boolean~ typePreferences
+        +TimeRange quietHours
+    }
+    
+    NotificationManager "1" --> "n" NotificationChannel : uses
+    NotificationManager "1" --> "n" Notification : sends
+    NotificationManager "1" --> "n" NotificationPreferences : checks
+    
+    NotificationChannel <|.. PushNotificationChannel : implements
+    NotificationChannel <|.. EmailNotificationChannel : implements
+    NotificationChannel <|.. InAppNotificationChannel : implements
+  `}
+/>
+
+## WebSocket Connection Management
+
+This diagram illustrates how Whisper manages WebSocket connections:
+
+<MermaidDiagram 
+  id="websocket-management" 
+  content={`
+classDiagram
+    class ConnectionManager {
+        -Map~UUID,List~Connection~~ connections
+        +registerConnection()
+        +unregisterConnection()
+        +getConnections()
+        +broadcastMessage()
+        +sendMessage()
+    }
+    
+    class Connection {
+        +UUID id
+        +UUID userId
+        +WebSocket socket
+        +String deviceId
+        +ConnectionStatus status
+        +DateTime connectedAt
+        +DateTime lastActivity
+        +sendMessage()
+        +close()
+        +ping()
+    }
+    
+    class ConnectionStatus {
+        <<enumeration>>
+        CONNECTING
+        CONNECTED
+        IDLE
+        DISCONNECTING
+        DISCONNECTED
+    }
+    
+    class MessageRouter {
+        +routeMessage()
+        +queueOfflineMessage()
+        +deliverQueuedMessages()
+    }
+    
+    class ConnectionMetrics {
+        +trackConnections()
+        +trackMessageVolume()
+        +trackLatency()
+        +getActiveConnectionCount()
+        +getMessagesPerSecond()
+        +getAverageLatency()
+    }
+    
+    ConnectionManager "1" --> "n" Connection : manages
+    ConnectionManager "1" --> "1" MessageRouter : uses
+    ConnectionManager "1" --> "1" ConnectionMetrics : tracks
+  `}
+/>
+
+## Data Consistency and Synchronization
+
+This diagram illustrates Whisper's approach to data consistency and synchronization across devices:
+
+<MermaidDiagram 
+  id="data-consistency" 
+  content={`
+classDiagram
+    class SyncManager {
+        +syncMessages()
+        +syncContacts()
+        +syncSettings()
+        +handleConflicts()
+        +trackSyncStatus()
+    }
+    
+    class SyncOperation {
+        +UUID id
+        +UUID userId
+        +String deviceId
+        +SyncType type
+        +SyncStatus status
+        +DateTime initiatedAt
+        +DateTime completedAt
+        +Map~String,Object~ metadata
+    }
+    
+    class SyncType {
+        <<enumeration>>
+        FULL_SYNC
+        INCREMENTAL_SYNC
+        CONFLICT_RESOLUTION
+    }
+    
+    class SyncStatus {
+        <<enumeration>>
+        PENDING
+        IN_PROGRESS
+        COMPLETED
+        FAILED
+        PARTIALLY_COMPLETED
+    }
+    
+    class ChangeTracker {
+        +trackChange()
+        +getChanges()
+        +clearChanges()
+    }
+    
+    class ConflictResolver {
+        +detectConflicts()
+        +resolveConflicts()
+        +applyResolution()
+    }
+    
+    class MergeStrategy {
+        <<interface>>
+        +merge()
+    }
+    
+    class LastWriteWinsMergeStrategy {
+        +merge()
+    }
+    
+    class ThreeWayMergeStrategy {
+        +merge()
+    }
+    
+    class ManualResolutionMergeStrategy {
+        +merge()
+    }
+    
+    SyncManager "1" --> "n" SyncOperation : creates
+    SyncManager "1" --> "1" ChangeTracker : uses
+    SyncManager "1" --> "1" ConflictResolver : uses
+    
+    ConflictResolver "1" --> "n" MergeStrategy : uses
+    
+    MergeStrategy <|.. LastWriteWinsMergeStrategy : implements
+    MergeStrategy <|.. ThreeWayMergeStrategy : implements
+    MergeStrategy <|.. ManualResolutionMergeStrategy : implements
+  `}
+/>
+
+## Server Architecture
+
+This diagram shows the server-side architecture of Whisper:
+
+<MermaidDiagram 
+  id="server-architecture" 
+  content={`
+classDiagram
+    class APIGateway {
+        +authenticateRequest()
+        +routeRequest()
+        +validatePayload()
+        +rateLimit()
+    }
+    
+    class UserService {
+        +createUser()
+        +updateUser()
+        +deleteUser()
+        +getUserProfile()
+        +searchUsers()
+    }
+    
+    class ConversationService {
+        +createConversation()
+        +updateConversation()
+        +deleteConversation()
+        +getConversationDetails()
+        +listConversations()
+    }
+    
+    class MessageService {
+        +sendMessage()
+        +editMessage()
+        +deleteMessage()
+        +getMessages()
+        +searchMessages()
+    }
+    
+    class AuthenticationService {
+        +registerUser()
+        +loginUser()
+        +logoutUser()
+        +refreshToken()
+        +resetPassword()
+    }
+    
+    class MediaService {
+        +uploadMedia()
+        +downloadMedia()
+        +generateThumbnail()
+        +deleteMedia()
+    }
+    
+    class WebSocketManager {
+        +handleConnection()
+        +handleDisconnection()
+        +processMessage()
+        +broadcastToRoom()
+    }
+    
+    APIGateway --> UserService : routes to
+    APIGateway --> ConversationService : routes to
+    APIGateway --> MessageService : routes to
+    APIGateway --> AuthenticationService : routes to
+    APIGateway --> MediaService : routes to
+    APIGateway --> WebSocketManager : routes to
+  `}
+/>
+
+These UML diagrams provide a comprehensive view of Whisper's architecture, helping developers understand how the various components work together to create a secure, efficient real-time communication system.
+
+export default ({ children }) => (
+  <div className="max-w-screen-xl mx-auto px-4 py-8">
+    {children}
+  </div>
+);

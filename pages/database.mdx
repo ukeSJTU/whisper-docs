@@ -1,0 +1,207 @@
+import { Callout } from 'nextra/components'
+import Image from 'next/image'
+
+# Database Design
+
+<Callout type="info">
+  This section outlines the database architecture that powers Whisper Chat, including table structures, relationships, and optimization strategies.
+</Callout>
+
+## Database Architecture
+
+Whisper uses a PostgreSQL database with specialized extensions to handle the unique requirements of a real-time messaging platform. The database is designed to optimize for:
+
+- High read/write throughput
+- Low-latency queries
+- Data integrity and consistency
+- Efficient search capabilities
+- Scalability for millions of users and messages
+
+## Schema Diagram
+
+The following diagram illustrates the relationships between the main entities in Whisper's database:
+
+<div className="my-10 border rounded-lg overflow-hidden shadow-md">
+  <Image 
+    src="https://images.pexels.com/photos/8391737/pexels-photo-8391737.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=2" 
+    alt="Whisper Database Schema Diagram" 
+    width={1000} 
+    height={700} 
+    className="w-full object-cover"
+  />
+</div>
+
+## Core Tables
+
+### Users Table
+
+The `users` table stores essential information about Whisper users:
+
+```sql
+CREATE TABLE users (
+  user_id UUID PRIMARY KEY,
+  username VARCHAR(64) NOT NULL UNIQUE,
+  email VARCHAR(255) NOT NULL UNIQUE,
+  display_name VARCHAR(128),
+  profile_picture_url TEXT,
+  status VARCHAR(64) DEFAULT 'offline',
+  last_seen TIMESTAMP WITH TIME ZONE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX idx_users_username ON users(username);
+CREATE INDEX idx_users_status ON users(status);
+```
+
+### Conversations Table
+
+The `conversations` table represents chat conversations, which can be either direct (between two users) or groups:
+
+```sql
+CREATE TABLE conversations (
+  conversation_id UUID PRIMARY KEY,
+  conversation_type VARCHAR(16) NOT NULL CHECK (conversation_type IN ('direct', 'group')),
+  title VARCHAR(128),
+  created_by UUID REFERENCES users(user_id),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX idx_conversations_type ON conversations(conversation_type);
+CREATE INDEX idx_conversations_created_by ON conversations(created_by);
+```
+
+### Participants Table
+
+The `participants` table manages the relationship between users and conversations:
+
+```sql
+CREATE TABLE participants (
+  participant_id UUID PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES users(user_id),
+  conversation_id UUID NOT NULL REFERENCES conversations(conversation_id),
+  role VARCHAR(16) DEFAULT 'member' CHECK (role IN ('admin', 'member')),
+  joined_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  last_read_message_id UUID,
+  UNIQUE(user_id, conversation_id)
+);
+
+CREATE INDEX idx_participants_user ON participants(user_id);
+CREATE INDEX idx_participants_conversation ON participants(conversation_id);
+```
+
+### Messages Table
+
+The `messages` table stores all messages sent within the platform:
+
+```sql
+CREATE TABLE messages (
+  message_id UUID PRIMARY KEY,
+  conversation_id UUID NOT NULL REFERENCES conversations(conversation_id),
+  sender_id UUID NOT NULL REFERENCES users(user_id),
+  message_type VARCHAR(16) NOT NULL CHECK (message_type IN ('text', 'media', 'system')),
+  content TEXT,
+  encrypted BOOLEAN DEFAULT TRUE,
+  sent_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  edited_at TIMESTAMP WITH TIME ZONE,
+  parent_message_id UUID REFERENCES messages(message_id)
+);
+
+CREATE INDEX idx_messages_conversation ON messages(conversation_id);
+CREATE INDEX idx_messages_sender ON messages(sender_id);
+CREATE INDEX idx_messages_sent_at ON messages(sent_at);
+CREATE INDEX idx_messages_parent ON messages(parent_message_id);
+```
+
+### Media Table
+
+The `media` table stores information about media files shared in messages:
+
+```sql
+CREATE TABLE media (
+  media_id UUID PRIMARY KEY,
+  message_id UUID NOT NULL REFERENCES messages(message_id),
+  media_type VARCHAR(16) NOT NULL CHECK (media_type IN ('image', 'video', 'audio', 'document')),
+  file_name VARCHAR(255) NOT NULL,
+  file_size BIGINT NOT NULL,
+  mime_type VARCHAR(128) NOT NULL,
+  storage_path TEXT NOT NULL,
+  thumbnail_path TEXT,
+  metadata JSONB
+);
+
+CREATE INDEX idx_media_message ON media(message_id);
+CREATE INDEX idx_media_type ON media(media_type);
+```
+
+## Partitioning Strategy
+
+For high-scale deployments, Whisper implements table partitioning to improve query performance and maintenance operations:
+
+<Callout type="info">
+  Messages are partitioned by date range (monthly), enabling efficient archiving and query optimization.
+</Callout>
+
+```sql
+-- Example of message table partitioning
+CREATE TABLE messages (
+  -- columns as defined above
+) PARTITION BY RANGE (sent_at);
+
+-- Create monthly partitions
+CREATE TABLE messages_y2023m01 PARTITION OF messages 
+  FOR VALUES FROM ('2023-01-01') TO ('2023-02-01');
+  
+CREATE TABLE messages_y2023m02 PARTITION OF messages 
+  FOR VALUES FROM ('2023-02-01') TO ('2023-03-01');
+
+-- Additional partitions as needed
+```
+
+## Indexing Strategy
+
+Whisper employs a comprehensive indexing strategy to ensure optimal query performance:
+
+1. **Primary Key Indices**: All tables have UUID primary keys
+2. **Foreign Key Indices**: All foreign key columns are indexed
+3. **Compound Indices**: Created for frequently used query patterns
+4. **Partial Indices**: Used for filtering on common conditions
+5. **GIN Indices**: Used for JSONB and full-text search columns
+
+## Data Access Patterns
+
+The database design is optimized for these common data access patterns:
+
+| Access Pattern | Implementation |
+|----------------|----------------|
+| Retrieve recent messages | Index on `(conversation_id, sent_at DESC)` |
+| Search message content | Full-text search with GIN index |
+| User conversation list | Join between users, participants, and conversations |
+| Unread message count | Comparison between last_read_message_id and latest message |
+| Media gallery view | Index on `(conversation_id, media_type)` |
+
+## Backup and Replication
+
+To ensure data durability and availability, Whisper employs:
+
+- Continuous archiving with Point-in-Time Recovery (PITR)
+- Synchronous replication to standby servers
+- Daily full backups with 30-day retention
+- Cross-region backup storage
+
+## Database Scaling
+
+As user base grows, Whisper's database scales through:
+
+1. **Read Replicas**: For distributing read queries
+2. **Sharding**: Horizontal partitioning by user geography or conversation ID
+3. **Connection Pooling**: Efficient management of database connections
+4. **Query Optimization**: Regular query plan analysis and optimization
+5. **Caching**: Implementing Redis for frequently accessed data
+
+export default ({ children }) => (
+  <div className="max-w-screen-xl mx-auto px-4 py-8">
+    {children}
+  </div>
+);

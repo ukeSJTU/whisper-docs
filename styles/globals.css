@@ -1,0 +1,63 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+:root {
+  --primary: 99 102 241;
+  --secondary: 168 85 247;
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+  
+  body {
+    @apply font-sans text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-950;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-semibold tracking-tight;
+  }
+  
+  h1 {
+    @apply text-4xl md:text-5xl leading-[1.2];
+  }
+
+  h2 {
+    @apply text-3xl md:text-4xl leading-[1.3] mt-10 mb-4;
+  }
+
+  h3 {
+    @apply text-2xl md:text-3xl leading-[1.3] mt-8 mb-3;
+  }
+}
+
+/* Custom styling for the mermaid diagrams */
+.mermaid svg {
+  @apply mx-auto my-8 max-w-full;
+}
+
+/* Animation for demo section */
+.demo-animation {
+  animation: float 6s ease-in-out infinite;
+}
+
+@keyframes float {
+  0% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+  100% {
+    transform: translateY(0px);
+  }
+}
+
+/* Canvas for the chart.js stress test visualization */
+.chart-container canvas {
+  @apply w-full h-full rounded-md border border-gray-200 dark:border-gray-800;
+}

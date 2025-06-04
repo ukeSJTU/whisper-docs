@@ -1,0 +1,82 @@
+import { Callout } from 'nextra/components'
+import StressTestDashboard from '../components/StressTestDashboard'
+
+# Dynamic Stress Testing
+
+<Callout type="warning">
+  Running stress tests will generate significant load on the Whisper servers. Please use the test environment for these operations.
+</Callout>
+
+## Performance Under Load
+
+Whisper is designed to handle high volumes of concurrent connections and message exchanges. This page allows you to visualize the performance of Whisper under various load conditions through real-time testing.
+
+<StressTestDashboard />
+
+## Testing Methodology
+
+Our stress testing approach evaluates several key metrics:
+
+1. **Concurrent Connection Capacity**: How many simultaneous WebSocket connections the system can maintain
+2. **Message Throughput**: The number of messages that can be processed per second
+3. **Latency**: The time it takes for a message to travel from sender to recipient
+4. **Resource Utilization**: CPU, memory, and network usage under load
+5. **Error Rates**: The percentage of failed operations under various load conditions
+
+## Test Scenarios
+
+The stress test dashboard allows you to run the following test scenarios:
+
+### Scenario 1: Gradual Connection Ramp-Up
+
+This test gradually increases the number of concurrent connections to identify the system's scaling characteristics and potential breaking points.
+
+### Scenario 2: Message Burst Test
+
+This test sends a sudden burst of messages from multiple clients to measure how the system handles traffic spikes.
+
+### Scenario 3: Long-Running Stability Test
+
+This test maintains a steady load over an extended period to identify potential resource leaks or performance degradation over time.
+
+### Scenario 4: Mixed Workload Test
+
+This test simulates a realistic usage pattern with a mix of different operations (sending messages, reading messages, creating groups, etc.).
+
+## Interpreting Results
+
+The dashboard provides real-time visualizations of:
+
+- Active connections over time
+- Message throughput (messages/second)
+- Message latency distribution
+- Error rates by operation type
+- Server resource utilization
+
+When analyzing the results, pay attention to:
+
+- **Inflection Points**: Where performance metrics start to degrade
+- **Error Rate Spikes**: Sudden increases in failed operations
+- **Latency Increases**: Growing delays in message delivery
+- **Resource Saturation**: CPU, memory, or network bottlenecks
+
+## System Optimizations
+
+Based on stress test results, Whisper implements several optimizations:
+
+1. **Connection Pooling**: Efficient management of database connections
+2. **Message Batching**: Grouping multiple messages into single database operations
+3. **Caching Layer**: In-memory caching of frequently accessed data
+4. **Load Balancing**: Distribution of traffic across multiple server instances
+5. **Database Sharding**: Horizontal partitioning of data based on user or conversation IDs
+6. **Lazy Loading**: Prioritizing critical data and deferring non-essential content
+
+<Callout type="info">
+  The stress test dashboard connects to Whisper's test environment. Results may vary compared to production performance due to different infrastructure configurations.
+</Callout>
+
+export default ({ children }) => (
+  <div className="max-w-screen-xl mx-auto px-4 py-8">
+    {children}
+  </div>
+);
