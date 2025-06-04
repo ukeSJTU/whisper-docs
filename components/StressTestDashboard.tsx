@@ -1,16 +1,16 @@
-import React, { useEffect, useState, useRef } from 'react';
 import { Chart, registerables } from 'chart.js';
-import { Line } from 'react-chartjs-2';
-import { 
-  Play, 
-  Pause, 
-  RotateCcw, 
-  AlertTriangle, 
-  Users, 
-  Clock, 
-  ActivitySquare, 
-  BarChart4 
+import {
+  ActivitySquare,
+  AlertTriangle,
+  BarChart4,
+  Clock,
+  Pause,
+  Play,
+  RotateCcw,
+  Users
 } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Line } from 'react-chartjs-2';
 
 // Register Chart.js components
 if (typeof window !== 'undefined') {
@@ -355,7 +355,7 @@ const StressTestDashboard: React.FC = () => {
           </div>
           
           <div className="space-x-2">
-            {testStatus === 'idle' || testStatus === 'completed' || testStatus === 'error' ? (
+            {testStatus === 'idle' || testStatus === 'completed' || testStatus === 'error' || testStatus === 'running' ? (
               <button
                 onClick={simulateWebSocketConnection}
                 className="px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white flex items-center"
