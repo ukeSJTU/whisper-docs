@@ -26,6 +26,7 @@
   },
   "stress-test": {
     "title": "Stress Testing",
-    "type": "page"
+    "type": "page",
+    "display": "hidden"
   }
 }

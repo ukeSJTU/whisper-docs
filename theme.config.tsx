@@ -10,9 +10,9 @@ const config: DocsThemeConfig = {
         </div>
     ),
     project: {
-        link: "https://github.com/yourusername/whisper-chat",
+        link: "https://github.com/ukeSJTU/whisper",
     },
-    docsRepositoryBase: "https://github.com/yourusername/whisper-blog",
+    docsRepositoryBase: "https://github.com/ukeSJTU/whisper-docs",
     footer: {
         text: (
             <span>
@@ -56,7 +56,7 @@ const config: DocsThemeConfig = {
     },
     primaryHue: {
         dark: 260,
-        light: 230,
+        light: 180,
     },
     navigation: {
         prev: true,

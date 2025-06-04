@@ -1,3 +1,5 @@
+"use client";
+
 import { useTheme } from "nextra-theme-docs";
 import React, { useEffect, useRef, useState } from "react";
 
@@ -17,7 +19,7 @@ const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ id, content }) => {
         import("mermaid").then((mermaid) => {
             mermaid.default.initialize({
                 startOnLoad: true,
-                theme: isDark ? "dark" : "default",
+                theme: "forest",
                 flowchart: {
                     useMaxWidth: true,
                     htmlLabels: true,
@@ -63,7 +65,7 @@ const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ id, content }) => {
     }, [rendered]);
 
     return (
-        <div className="my-8 overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950 p-4 shadow-sm">
+        <div className="my-8 overflow-x-auto rounded-lg p-4 shadow-sm">
             <div ref={containerRef} className="mermaid flex justify-center" />
         </div>
     );

@@ -1,0 +1,18 @@
+{
+    "index": {
+        "title": "Protocol Overview",
+        "type": "page"
+    },
+    "authentication": {
+        "title": "Authentication",
+        "type": "page"
+    },
+    "private_chat": {
+        "title": "Private Chat",
+        "type": "page"
+    },
+    "group_chat": {
+        "title": "Group Chat",
+        "type": "page"
+    }
+}

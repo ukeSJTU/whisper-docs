@@ -1,34 +1,35 @@
-import { Callout } from 'nextra/components'
-import Image from 'next/image'
+import { Callout } from "nextra/components";
+import Image from "next/image";
 
 # Database Design
 
 <Callout type="info">
-  This section outlines the database architecture that powers Whisper Chat, including table structures, relationships, and optimization strategies.
+    This section outlines the database architecture that powers Whisper Chat,
+    including table structures, relationships, and optimization strategies.
 </Callout>
 
 ## Database Architecture
 
 Whisper uses a PostgreSQL database with specialized extensions to handle the unique requirements of a real-time messaging platform. The database is designed to optimize for:
 
-- High read/write throughput
-- Low-latency queries
-- Data integrity and consistency
-- Efficient search capabilities
-- Scalability for millions of users and messages
+-   High read/write throughput
+-   Low-latency queries
+-   Data integrity and consistency
+-   Efficient search capabilities
+-   Scalability for millions of users and messages
 
 ## Schema Diagram
 
 The following diagram illustrates the relationships between the main entities in Whisper's database:
 
 <div className="my-10 border rounded-lg overflow-hidden shadow-md">
-  <Image 
-    src="https://images.pexels.com/photos/8391737/pexels-photo-8391737.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=2" 
-    alt="Whisper Database Schema Diagram" 
-    width={1000} 
-    height={700} 
-    className="w-full object-cover"
-  />
+    <Image
+        src="https://pub-cc2ebc8a43754210aa734d07c4898ad1.r2.dev/2025/06/Diagram%201.webp"
+        alt="Whisper Database Schema Diagram"
+        width={1000}
+        height={700}
+        className="w-full object-cover"
+    />
 </div>
 
 ## Core Tables
@@ -140,7 +141,8 @@ CREATE INDEX idx_media_type ON media(media_type);
 For high-scale deployments, Whisper implements table partitioning to improve query performance and maintenance operations:
 
 <Callout type="info">
-  Messages are partitioned by date range (monthly), enabling efficient archiving and query optimization.
+    Messages are partitioned by date range (monthly), enabling efficient
+    archiving and query optimization.
 </Callout>
 
 ```sql
@@ -150,10 +152,10 @@ CREATE TABLE messages (
 ) PARTITION BY RANGE (sent_at);
 
 -- Create monthly partitions
-CREATE TABLE messages_y2023m01 PARTITION OF messages 
+CREATE TABLE messages_y2023m01 PARTITION OF messages
   FOR VALUES FROM ('2023-01-01') TO ('2023-02-01');
-  
-CREATE TABLE messages_y2023m02 PARTITION OF messages 
+
+CREATE TABLE messages_y2023m02 PARTITION OF messages
   FOR VALUES FROM ('2023-02-01') TO ('2023-03-01');
 
 -- Additional partitions as needed
@@ -173,22 +175,22 @@ Whisper employs a comprehensive indexing strategy to ensure optimal query perfor
 
 The database design is optimized for these common data access patterns:
 
-| Access Pattern | Implementation |
-|----------------|----------------|
-| Retrieve recent messages | Index on `(conversation_id, sent_at DESC)` |
-| Search message content | Full-text search with GIN index |
-| User conversation list | Join between users, participants, and conversations |
-| Unread message count | Comparison between last_read_message_id and latest message |
-| Media gallery view | Index on `(conversation_id, media_type)` |
+| Access Pattern           | Implementation                                             |
+| ------------------------ | ---------------------------------------------------------- |
+| Retrieve recent messages | Index on `(conversation_id, sent_at DESC)`                 |
+| Search message content   | Full-text search with GIN index                            |
+| User conversation list   | Join between users, participants, and conversations        |
+| Unread message count     | Comparison between last_read_message_id and latest message |
+| Media gallery view       | Index on `(conversation_id, media_type)`                   |
 
 ## Backup and Replication
 
 To ensure data durability and availability, Whisper employs:
 
-- Continuous archiving with Point-in-Time Recovery (PITR)
-- Synchronous replication to standby servers
-- Daily full backups with 30-day retention
-- Cross-region backup storage
+-   Continuous archiving with Point-in-Time Recovery (PITR)
+-   Synchronous replication to standby servers
+-   Daily full backups with 30-day retention
+-   Cross-region backup storage
 
 ## Database Scaling
 
@@ -200,8 +202,49 @@ As user base grows, Whisper's database scales through:
 4. **Query Optimization**: Regular query plan analysis and optimization
 5. **Caching**: Implementing Redis for frequently accessed data
 
+## Redis
+
+```mermaid
+flowchart LR
+ subgraph s1["底层存储"]
+        T[("SQLite Database<br>持久化存储")]
+        U[("Redis Cache<br>内存缓存")]
+  end
+    A["Server API Handler"] --> B{"操作类型判断"}
+    B -- 读操作 --> C["Redis缓存查询"]
+    C -- 缓存命中 --> F["直接返回缓存数据"]
+    B -- 写操作 --> D["SQLite数据库写入"]
+    C -- 缓存未命中 --> G["查询SQLite数据库"]
+    H["更新Redis缓存"] --> I["返回数据库结果"] & U
+    D --> J["更新Redis缓存"] & T
+    J --> K["返回写入结果"] & U
+    L["清除Redis缓存"] --> M["返回删除结果"] & U
+    B -- 删除操作 --> E["SQLite数据库删除"]
+    G --> H & T
+    E --> L & T
+    C --> U
+     T:::database
+     U:::cache
+     C:::readOp
+     F:::readOp
+     D:::writeOp
+     G:::readOp
+     H:::readOp
+     I:::readOp
+     J:::writeOp
+     K:::writeOp
+     L:::deleteOp
+     M:::deleteOp
+     E:::deleteOp
+    classDef readOp fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
+    classDef writeOp fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
+    classDef deleteOp fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+    classDef cache fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    classDef database fill:#e8f5e8,stroke:#388e3c,stroke-width:2px
+```
+
 export default ({ children }) => (
-  <div className="max-w-screen-xl mx-auto px-4 py-8">
-    {children}
-  </div>
+    <div className="max-w-screen-xl mx-auto px-4 py-8">{children}</div>
 );
+
+;

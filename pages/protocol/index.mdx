@@ -10,10 +10,10 @@ import { Callout, Tabs, Tab } from 'nextra/components'
 
 Whisper utilizes a custom protocol built on top of WebSockets to enable secure, real-time communication between clients. The protocol is designed with the following goals in mind:
 
-- **Security**: End-to-end encryption for all messages
-- **Efficiency**: Minimal overhead for low-latency communication
-- **Reliability**: Message delivery guarantees with acknowledgments
-- **Extensibility**: Flexible message format for future enhancements
+-   **Security**: End-to-end encryption for all messages
+-   **Efficiency**: Minimal overhead for low-latency communication
+-   **Reliability**: Message delivery guarantees with acknowledgments
+-   **Extensibility**: Flexible message format for future enhancements
 
 ## Message Format
 
@@ -21,17 +21,17 @@ All messages in the Whisper protocol follow a standardized JSON format:
 
 ```json
 {
-  "type": "message_type",
-  "id": "unique_message_id",
-  "timestamp": 1634567890123,
-  "sender": "user_id",
-  "recipient": "recipient_id",
-  "content": {
-    // Message-specific payload
-  },
-  "metadata": {
-    // Additional message metadata
-  }
+    "type": "message_type",
+    "id": "unique_message_id",
+    "timestamp": 1634567890123,
+    "sender": "user_id",
+    "recipient": "recipient_id",
+    "content": {
+        // Message-specific payload
+    },
+    "metadata": {
+        // Additional message metadata
+    }
 }
 ```
 
@@ -39,26 +39,26 @@ All messages in the Whisper protocol follow a standardized JSON format:
 
 The `type` field indicates the purpose of the message. Common message types include:
 
-| Type | Description |
-| --- | --- |
-| `text` | Standard text message |
-| `media` | Media message (image, video, document) |
-| `typing` | Typing indicator |
-| `read` | Read receipt |
-| `presence` | User presence update |
-| `system` | System notification |
+| Type       | Description                            |
+| ---------- | -------------------------------------- |
+| `text`     | Standard text message                  |
+| `media`    | Media message (image, video, document) |
+| `typing`   | Typing indicator                       |
+| `read`     | Read receipt                           |
+| `presence` | User presence update                   |
+| `system`   | System notification                    |
 
 ## Encryption
 
 Whisper implements end-to-end encryption using the Signal Protocol, which provides:
 
-- Perfect forward secrecy
-- Post-compromise security
-- Deniable authentication
+-   Perfect forward secrecy
+-   Post-compromise security
+-   Deniable authentication
 
 <Tabs items={['Key Exchange', 'Message Encryption', 'Verification']}>
-  <Tab>
-    ### Key Exchange Process
+<Tab> 
+### Key Exchange Process
 
     1. **Initial Registration**:
        - Client generates identity key pair (IK)
@@ -71,6 +71,7 @@ Whisper implements end-to-end encryption using the Signal Protocol, which provid
        - Initiator generates ephemeral key pair
        - Initiator computes shared secret using X3DH protocol
        - Initiator sends initial message with key information
+
   </Tab>
   <Tab>
     ### Message Encryption
@@ -89,6 +90,7 @@ Whisper implements end-to-end encryption using the Signal Protocol, which provid
     3. **Receiving Messages**:
        - Decrypt message with corresponding message key
        - Update receiver chain key
+
   </Tab>
   <Tab>
     ### Verification Mechanism
@@ -100,6 +102,7 @@ Whisper implements end-to-end encryption using the Signal Protocol, which provid
     - **Out-of-Band Verification**: Use an external secure channel to verify identity
 
     When a security event occurs (e.g., a contact reinstalls the app), users are notified about the change in safety numbers.
+
   </Tab>
 </Tabs>
 
@@ -107,35 +110,37 @@ Whisper implements end-to-end encryption using the Signal Protocol, which provid
 
 Whisper uses WebSockets as the primary transport layer, with HTTP long-polling as a fallback mechanism:
 
-- **WebSockets**: Provides bi-directional, full-duplex communication channels over a single TCP connection
-- **HTTP Fallback**: Used in environments where WebSockets are not supported or are blocked
+-   **WebSockets**: Provides bi-directional, full-duplex communication channels over a single TCP connection
+-   **HTTP Fallback**: Used in environments where WebSockets are not supported or are blocked
 
 ## Message Flow
 
 1. **Connection Establishment**:
-   - Client connects to the Whisper server via WebSocket
-   - Client authenticates using JWT or similar token
-   - Server verifies authentication and establishes session
+
+    - Client connects to the Whisper server via WebSocket
+    - Client authenticates using JWT or similar token
+    - Server verifies authentication and establishes session
 
 2. **Message Sending**:
-   - Client encrypts message using recipient's public key
-   - Client sends encrypted message to server
-   - Server validates message and forwards to recipient(s)
-   - Recipient acknowledges receipt
-   - Server confirms delivery to sender
+
+    - Client encrypts message using recipient's public key
+    - Client sends encrypted message to server
+    - Server validates message and forwards to recipient(s)
+    - Recipient acknowledges receipt
+    - Server confirms delivery to sender
 
 3. **Offline Handling**:
-   - If recipient is offline, server stores message
-   - When recipient comes online, server delivers queued messages
-   - Messages expire after a configurable TTL (Time To Live)
+    - If recipient is offline, server stores message
+    - When recipient comes online, server delivers queued messages
+    - Messages expire after a configurable TTL (Time To Live)
 
 ## Rate Limiting and Quotas
 
 To prevent abuse and ensure fair usage, Whisper implements rate limiting and quotas:
 
-- Maximum message rate: 100 messages per minute per user
-- Maximum connections: 5 concurrent connections per user
-- Message size limit: 10MB for media, 4KB for text
+-   Maximum message rate: 100 messages per minute per user
+-   Maximum connections: 5 concurrent connections per user
+-   Message size limit: 10MB for media, 4KB for text
 
 ## API Reference
 
@@ -145,14 +150,15 @@ For detailed API documentation, please refer to the [Whisper API Reference](/api
 
 The Whisper protocol uses semantic versioning (MAJOR.MINOR.PATCH):
 
-- Current version: 1.2.0
-- Backward compatibility is maintained within the same MAJOR version
+-   Current version: 1.2.0
+-   Backward compatibility is maintained within the same MAJOR version
 
 <Callout type="info">
   Clients should negotiate protocol version during connection establishment to ensure compatibility.
 </Callout>
 
 export default ({ children }) => (
+
   <div className="max-w-screen-xl mx-auto px-4 py-8">
     {children}
   </div>
