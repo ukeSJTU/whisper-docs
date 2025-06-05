@@ -28,5 +28,9 @@
     "title": "Stress Testing",
     "type": "page",
     "display": "hidden"
+  },
+  "encrypt": {
+    "title": "Encrypt",
+    "type": "page"
   }
 }

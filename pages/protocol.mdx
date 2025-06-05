@@ -1,0 +1,1832 @@
+# Whisper Protocol Specification
+
+## 1. 通用消息格式与约定 (General Message Format & Conventions)
+
+所有客户端 (Client) 与服务器 (Server) 之间的通信都遵循统一的帧结构和 JSON 负载结构。
+
+### 1.1. 网络帧结构 (Network Frame Structure)
+
+每条消息在 TCP 流中都带有头部，指明消息总长度：
+
+| 字段       | 字节数   | 类型           | 描述                                                     |
+| ---------- | -------- | -------------- | -------------------------------------------------------- |
+| 消息总长度 | 4        | Unsigned Int   | 包括头部在内的整条消息的字节长度 (网络字节序 Big Endian) |
+| JSON 负载  | 剩余字节 | String (UTF-8) | 实际的 JSON 格式的业务数据                               |
+
+### 1.2. JSON 负载通用结构 (General JSON Payload Structure)
+
+网络帧结构中的"JSON 负载"部分采用以下通用结构：
+
+```json
+{
+    "message_id": "unique_uuid_string_for_this_message_envelope",
+    "type": "MESSAGE_TYPE_STRING_IDENTIFIER",
+    "timestamp": "iso_8601_datetime_string_utc",
+    "token": "session_token_string_or_null",
+    "correlation_id": "echoed_request_message_id_or_null",
+    "payload": {
+        // --- 特定消息类型的具体负载内容 ---
+    }
+}
+```
+
+**通用 JSON 字段说明:**
+
+| 参数名           | 类型             | Optional?      | 描述                                                                                               | 示例                                               |
+| ---------------- | ---------------- | -------------- | -------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| `message_id`     | string (UUID)    | 否             | 此消息信封的唯一标识符。                                                                           | `"a1b2c3d4-e5f6-7890-1234-567890abcdef"`           |
+| `type`           | string           | 否             | 消息类型的字符串标识符 (与头部中的消息类型 ID 对应，便于人类阅读和调试)。                          | `"LOGIN_REQUEST"`                                  |
+| `timestamp`      | string (ISO8601) | 否             | 消息创建时的 UTC 时间戳。                                                                          | `"2025-05-15T15:30:00Z"`                           |
+| `token`          | string           | 是 (可为 null) | 用户会话令牌。对于需要认证的请求，此字段必须提供。对于未认证请求（如注册、登录），此字段为`null`。 | `"valid_session_token_here"` 或 `null`             |
+| `correlation_id` | string (UUID)    | 是 (可为 null) | 对于响应类型的消息，此字段应包含其对应的请求消息的`message_id`。对于请求或通知，此字段为`null`。   | `"a1b2c3d4-e5f6-7890-1234-567890abcdef"` 或 `null` |
+| `payload`        | object           | 否             | 包含此消息类型特定数据的对象。其结构在后续各消息类型中详细定义。                                   | `{...}`                                            |
+
+---
+
+## 按照功能划分的具体协议
+
+# 用户认证与管理 (Authentication & User Management)
+
+## 概述
+
+本部分定义了用户注册、登录、登出的相关协议。
+
+## 2.1. 用户注册 (User Registration)
+
+### `REGISTER_REQUEST` (Client -> Server)
+
+-   **消息类型 ID**: `101`
+-   **JSON `type` 字符串**: `"REGISTER_REQUEST"`
+
+```json
+{
+    "message_id": "c4a2b1e0-dbb8-4a94-83d3-c7d0b6a8f9c0",
+    "type": "REGISTER_REQUEST",
+    "timestamp": "2025-05-15T10:00:00Z",
+    "token": null,
+    "correlation_id": null,
+    "payload": {
+        "username": "newuser",
+        "password": "a_strong_password",
+        "identity_public_key": "base64_encoded_X25519_public_key_optional"
+    }
+}
+```
+
+**Payload 参数:**
+| 参数名 | 类型 | Optional? | 描述 | 示例 |
+| --------------------- | ------ | --------- | ------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| `username` | string | 否 | 用户希望注册的用户名，服务器需校验唯一性。 | `"newuser"` |
+| `password` | string | 否 | 用户设置的密码。**注意**: 客户端应通过 TLS 等安全通道发送。服务器负责安全地哈希和存储密码。 | `"a_strong_password"` |
+| `identity_public_key` | string | 是 | 用户可选提供的身份公钥 (例如 X25519), Base64 编码的字符串表示。 | `"base64_encoded_X25519_public_key_optional"` |
+
+### `REGISTER_RESPONSE` (Server -> Client)
+
+-   **消息类型 ID**: `102`
+-   **JSON `type` 字符串**: `"REGISTER_RESPONSE"`
+
+```json
+{
+    "message_id": "s8f7e6d5-c4b3-2a10-9876-fedcba098765",
+    "type": "REGISTER_RESPONSE",
+    "timestamp": "2025-05-15T10:00:01Z",
+    "token": null,
+    "correlation_id": "c4a2b1e0-dbb8-4a94-83d3-c7d0b6a8f9c0",
+    "payload": {
+        "success": true,
+        "message": "Registration successful!",
+        "user_id": "usr_sj20djn2",
+        "ephemeral_public_key": "base64_encoded_X25519_ephemeral_public_key_optional"
+    }
+}
+```
+
+**Payload 参数:**
+| 参数名 | 类型 | Optional? | 描述 | 示例 |
+| ---------------------- | ------- | --------- | -------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| `success` | boolean | 否 | 注册是否成功。 | `true` |
+| `message` | string | 否 | 注册结果的描述信息 (例如 "Registration successful!", "Username already exists.") | `"Registration successful!"` |
+| `user_id` | string | 是 | 如果注册成功，服务器分配的唯一用户 ID。 | `"usr_sj20djn2"` |
+| `ephemeral_public_key` | string | 是 | 用户可选提供的当前会话临时公钥 (X25519 `ek_pub`), Base64 编码的字符串表示。 | `"base64_encoded_X25519_ephemeral_public_key_optional"` |
+
+---
+
+## 2.2. 用户登录 (User Login)
+
+### `LOGIN_REQUEST` (Client -> Server)
+
+-   **消息类型 ID**: `103`
+-   **JSON `type` 字符串**: `"LOGIN_REQUEST"`
+
+```json
+{
+    "message_id": "c5b8c1f0-eac9-4b95-84d4-d8e1c7a9g0d1",
+    "type": "LOGIN_REQUEST",
+    "timestamp": "2025-05-15T10:05:00Z",
+    "token": null,
+    "correlation_id": null,
+    "payload": {
+        "username": "existinguser",
+        "password": "user_password",
+        "ephemeral_public_key": "base64_encoded_X25519_ephemeral_public_key_optional"
+    }
+}
+```
+
+**Payload 参数:**
+| 参数名 | 类型 | Optional? | 描述 | 示例 |
+| ---------------------- | ------ | --------- | --------------------------------------------------------------------------- | ------------------------------------------------------- |
+| `username` | string | 否 | 登录用户名。 | `"existinguser"` |
+| `password` | string | 否 | 用户密码。 (同样注意 TLS 安全传输) | `"user_password"` |
+| `ephemeral_public_key` | string | 是 | 用户可选提供的当前会话临时公钥 (X25519 `ek_pub`), Base64 编码的字符串表示。 | `"base64_encoded_X25519_ephemeral_public_key_optional"` |
+
+### `LOGIN_RESPONSE` (Server -> Client)
+
+-   **消息类型 ID**: `104`
+-   **JSON `type` 字符串**: `"LOGIN_RESPONSE"`
+
+```json
+{
+    "message_id": "s9g7f6e5-d4c3-3b11-9877-gfeda0987654",
+    "type": "LOGIN_RESPONSE",
+    "timestamp": "2025-05-15T10:05:01Z",
+    "token": "a_new_valid_session_token_if_success",
+    "correlation_id": "c5b8c1f0-eac9-4b95-84d4-d8e1c7a9g0d1",
+    "payload": {
+        "success": true,
+        "message": "Login successful!",
+        "user_id": "usr_existing123",
+        "username": "existinguser",
+        "low_opk_count_warning": false
+    }
+}
+```
+
+**Payload 参数:**
+| 参数名 | 类型 | Optional? | 描述 | 示例 |
+| ----------------------- | ------- | --------- | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| `success` | boolean | 否 | 登录是否成功。 | `true` |
+| `message` | string | 否 | 登录结果的描述信息。 | `"Login successful!"` |
+| `user_id` | string | 是 | 如果登录成功，用户的唯一 ID。 | `"usr_existing123"` |
+| `username` | string | 是 | 如果登录成功，用户的用户名 (方便客户端确认)。 | `"existinguser"` |
+| `low_opk_count_warning` | boolean | 是 | 如果为`true`，表示服务器检测到该用户在服务器上存储的一次性预共享密钥(OTPKey)数量偏低，客户端应尽快上传新的一批 OTPKey。 | `false` |
+
+**注意**: 成功登录后，响应的顶层 `token` 字段将包含会话令牌。客户端后续请求需携带此令牌。
+
+---
+
+## 2.3. 用户登出 (User Logout)
+
+### `LOGOUT_REQUEST` (Client -> Server)
+
+-   **消息类型 ID**: `105`
+-   **JSON `type` 字符串**: `"LOGOUT_REQUEST"`
+
+```json
+{
+    "message_id": "c6d9e2g1-fbd0-4c96-85e5-e9f2d8b0h1e2",
+    "type": "LOGOUT_REQUEST",
+    "timestamp": "2025-05-15T11:00:00Z",
+    "token": "current_user_session_token",
+    "correlation_id": null,
+    "payload": {}
+}
+```
+
+**Payload 参数:**
+| 参数名 | 类型 | Optional? | 描述 | 示例 |
+| ------ | ---- | --------- | ------------------------- | ---- |
+| (空) | N/A | N/A | 登出请求的 payload 为空。 | `{}` |
+
+### `LOGOUT_RESPONSE` (Server -> Client)
+
+-   **消息类型 ID**: `106`
+-   **JSON `type` 字符串**: `"LOGOUT_RESPONSE"`
+
+```json
+{
+    "message_id": "sa0h8g7f-e5d4-4c12-9878-hgfedb098765",
+    "type": "LOGOUT_RESPONSE",
+    "timestamp": "2025-05-15T11:00:01Z",
+    "token": null,
+    "correlation_id": "c6d9e2g1-fbd0-4c96-85e5-e9f2d8b0h1e2",
+    "payload": {
+        "success": true,
+        "message": "Logout successful."
+    }
+}
+```
+
+**Payload 参数:**
+| 参数名 | 类型 | Optional? | 描述 | 示例 |
+| --------- | ------- | --------- | -------------------- | ---------------------- |
+| `success` | boolean | 否 | 登出是否成功。 | `true` |
+| `message` | string | 否 | 登出结果的描述信息。 | `"Logout successful."` |
+
+---
+
+### 3. 私聊聊天 (Private Chat)
+
+
+
+# 一对一聊天 (Private Chat)
+
+## 概述
+
+本部分定义了支持**双模式**的一对一私聊消息系统：
+
+1.  **端到端加密 (E2EE)模式**：基于 Signal 协议，使用预共享密钥(PreKey)机制建立初始会话，然后使用双棘轮(Double Ratchet)算法进行后续消息加密。
+2.  **明文模式**：直接传输未经加密的文本消息，用于简化实现或特定非敏感场景。
+
+客户端在发送消息时，将通过 `MessageContent` 对象中的 `type` 字段指明所使用的模式。服务器主要负责透明转发消息内容。
+
+> **注意**：本文档中所有时间戳字段在 API 中以 ISO8601 格式字符串表示（如"2025-05-15T11:05:00Z"），但在实际代码实现中使用 datetime 对象进行处理。
+
+---
+
+## 3.1. 发送私聊消息 (Send Private Message)
+
+### `SEND_PRIVATE_CHAT_MESSAGE_REQUEST` (Client -> Server)
+
+-   **消息类型 ID**: `201`
+-   **JSON `type` 字符串**: `"SEND_PRIVATE_CHAT_MESSAGE_REQUEST"`
+
+**JSON 示例 (E2EE - PreKey 消息):**
+
+```json
+{
+    "message_id": "c7e0f3h2-gcd1-4d97-86f6-f0g3e9c1i2f3",
+    "type": "SEND_PRIVATE_CHAT_MESSAGE_REQUEST",
+    "timestamp": "2025-05-15T11:05:00Z",
+    "token": "current_user_session_token",
+    "correlation_id": null,
+    "payload": {
+        "recipient_user_id": "usr_friend456",
+        "content": {
+            "type": "prekey",
+            "body": "U29tZSBFbmNyeXB0ZWQgRGF0YQ==",
+            "sender_identity_public_key": "base64_sender_IK_pub",
+            "sender_ephemeral_public_key": "base64_sender_EK_pub",
+            "recipient_signed_pre_key_id": 123456,
+            "recipient_one_time_pre_key_id": 123457
+        },
+        "client_message_id": "client_msg_uuid_001"
+    }
+}
+```
+
+**JSON 示例 (明文消息):**
+
+```json
+{
+    "message_id": "p9a8b7c6-d5e4-f3g2-h1i0-j9k8l7m6n5o4",
+    "type": "SEND_PRIVATE_CHAT_MESSAGE_REQUEST",
+    "timestamp": "2025-05-15T11:07:00Z",
+    "token": "current_user_session_token",
+    "correlation_id": null,
+    "payload": {
+        "recipient_user_id": "usr_friend789",
+        "content": {
+            "type": "plaintext",
+            "body": "你好，这是一条明文消息！"
+        },
+        "client_message_id": "client_msg_uuid_002"
+    }
+}
+```
+
+**Payload 参数:**
+| 参数名 | 类型 | Optional? | 描述 | 示例 |
+| ------------------- | --------------- | --------- | -------------------------------------------------------------------- | ------------------------------ |
+| `recipient_user_id` | string | 否 | 消息接收者的用户 ID。 | `"usr_friend456"` |
+| `content` | `MessageContent` | 否 | 消息内容对象。其具体结构和字段取决于 `content.type` 的值。详见下方 `MessageContent` 定义。 | `{...}` |
+| `client_message_id` | string | 是 | 客户端生成的消息 ID，用于追踪消息发送状态。服务端在 ACK 中会回显此 ID。 | `"client_msg_uuid_001"` |
+
+---
+
+### `PRIVATE_CHAT_MESSAGE_SENT_ACK` (Server -> Client, to Sender)
+
+-   **消息类型 ID**: `202` (通用于私聊和群聊消息发送确认)
+-   **JSON `type` 字符串**: `"PRIVATE_CHAT_MESSAGE_SENT_ACK"`
+
+此消息结构保持不变，因为它只确认服务器已处理消息，不关心内容是明文还是密文。
+
+**JSON 示例:**
+
+```json
+{
+    "message_id": "sb1i9h8g-f6e5-5d13-9879-ihgfedb09876",
+    "type": "PRIVATE_CHAT_MESSAGE_SENT_ACK",
+    "timestamp": "2025-05-15T11:05:01Z",
+    "token": null,
+    "correlation_id": "c7e0f3h2-gcd1-4d97-86f6-f0g3e9c1i2f3",
+    "payload": {
+        "status_message": "Message processed by server.",
+        "server_message_id": "srv_msg_xyz789",
+        "client_message_id": "client_msg_uuid_001",
+        "message_timestamp": "2025-05-15T11:05:00Z"
+    }
+}
+```
+
+**Payload 参数:**
+| 参数名 | 类型 | Optional? | 描述 | 示例 |
+| ------------------- | ------ | --------- | --------------------------------------------------------------------------------------- | -------------------------------- |
+| `status_message` | string | 否 | 消息处理状态 (例如 "Message processed by server", "Recipient offline, message stored"). | `"Message processed by server."` |
+| `server_message_id` | string | 否 | 服务器为此消息生成的唯一 ID。 | `"srv_msg_xyz789"` |
+| `client_message_id` | string | 是 | 如果客户端在请求中提供了此 ID，服务器将其回显。 | `"client_msg_uuid_001"` |
+| `message_timestamp` | string (ISO8601) | 否 | 消息在服务端被处理并分配 `server_message_id` 时的精确时间戳。客户端应使用此时间戳更新本地消息记录。 | `"2025-05-15T11:05:00Z"` |
+
+---
+
+## 3.2. 接收私聊消息 (Receive Private Message)
+
+### `RECEIVE_PRIVATE_CHAT_MESSAGE_NOTIFICATION` (Server -> Client, to Recipient)
+
+-   **消息类型 ID**: `203`
+-   **JSON `type` 字符串**: `"RECEIVE_PRIVATE_CHAT_MESSAGE_NOTIFICATION"`
+
+服务器将 `SEND_PRIVATE_CHAT_MESSAGE_REQUEST` 中的 `content` 对象原样转发给接收方。
+
+**JSON 示例 (E2EE - PreKey 消息):**
+
+```json
+{
+    "message_id": "sc2j0i9h-g7f6-6e14-9870-jihgfedb0987",
+    "type": "RECEIVE_PRIVATE_CHAT_MESSAGE_NOTIFICATION",
+    "timestamp": "2025-05-15T11:05:02Z",
+    "token": null,
+    "correlation_id": null,
+    "payload": {
+        "server_message_id": "srv_msg_xyz789",
+        "sender_user_id": "usr_sender123",
+        "sender_username": "SenderName",
+        "content": {
+            "type": "prekey",
+            "body": "U29tZSBFbmNyeXB0ZWQgRGF0YQ==",
+            "sender_identity_public_key": "base64_sender_IK_pub",
+            "sender_ephemeral_public_key": "base64_sender_EK_pub",
+            "recipient_signed_pre_key_id": 123456,
+            "recipient_one_time_pre_key_id": 123457
+        },
+        "message_timestamp": "2025-05-15T11:05:00Z"
+    }
+}
+```
+
+**JSON 示例 (明文消息):**
+
+```json
+{
+    "message_id": "rd3k1j0i-h8g7-7f15-9871-kjihgfedcba0",
+    "type": "RECEIVE_PRIVATE_CHAT_MESSAGE_NOTIFICATION",
+    "timestamp": "2025-05-15T11:07:02Z",
+    "token": null,
+    "correlation_id": null,
+    "payload": {
+        "server_message_id": "srv_msg_abc123",
+        "sender_user_id": "usr_another_sender",
+        "sender_username": "AnotherSenderName",
+        "content": {
+            "type": "plaintext",
+            "body": "你好，这是一条来自服务器转发的明文消息！"
+        },
+        "message_timestamp": "2025-05-15T11:07:00Z"
+    }
+}
+```
+
+**Payload 参数:**
+| 参数名 | 类型 | Optional? | 描述 | 示例 |
+| ------------------- | ---------------- | --------- | -------------------------------------------------------------------- | ------------------------------ |
+| `server_message_id` | string | 否 | 服务器为此消息生成的唯一 ID。 | `"srv_msg_xyz789"` |
+| `sender_user_id` | string | 否 | 消息发送者的用户 ID。 | `"usr_sender123"` |
+| `sender_username` | string | 否 | 消息发送者的用户名。 | `"SenderName"` |
+| `content` | `MessageContent` | 否 | 消息内容对象。接收方客户端根据其内部的 `type` 字段进行相应处理。详见 `MessageContent` 定义。 | `{...}` |
+| `message_timestamp` | string (ISO8601) | 否 | 消息的原始发送时间戳（即发送方客户端创建消息时的时间戳）。 | `"2025-05-15T11:05:00Z"` |
+
+---
+
+好的，我们将在您现有的一对一聊天协议基础上添加撤回消息的功能。
+
+核心思路是：
+
+1.  **发送方** 发起一个撤回请求，指明要撤回的**服务器消息 ID (`server_message_id`)**。
+2.  **服务器** 验证请求（例如，是否是消息的原始发送者，是否在允许的时间窗口内——如果需要定义时间窗口的话），然后通知**接收方**该消息已被撤回。
+3.  **接收方客户端** 收到撤回通知后，在其本地将对应消息标记为已撤回或直接移除。
+4.  服务器也会给发送方一个撤回操作的确认。
+
+由于端到端加密 (E2EE) 的特性，服务器无法读取消息内容，也无法"删除"已发送到接收方设备并可能已被解密的消息内容。撤回操作本质上是发送一个"指令"，告知接收方客户端"请将 ID 为 X 的消息视为已撤回"。接收方客户端负责执行此操作。
+
+以下是协议的补充部分：
+
+---
+
+## 3.3. 撤回私聊消息 (Recall Private Message)
+
+本节定义了用户撤回已发送私聊消息的机制。撤回操作针对的是 `server_message_id`。
+
+### 3.3.1. `RECALL_PRIVATE_CHAT_MESSAGE_REQUEST` (Client -> Server, from Sender)
+
+-   **消息类型 ID**: `204`
+-   **JSON `type` 字符串**: `"RECALL_PRIVATE_CHAT_MESSAGE_REQUEST"`
+
+当用户希望撤回一条已发送的消息时，客户端向服务器发送此请求。
+
+**JSON 示例:**
+
+```json
+{
+    "message_id": "r3c4ll_req_uuid_001",
+    "type": "RECALL_PRIVATE_CHAT_MESSAGE_REQUEST",
+    "timestamp": "2025-05-15T11:10:00Z",
+    "token": "current_user_session_token",
+    "correlation_id": null,
+    "payload": {
+        "recipient_user_id": "usr_friend456",
+        "server_message_id_to_recall": "srv_msg_xyz789",
+        "client_recall_request_id": "client_recall_uuid_001"
+    }
+}
+```
+
+**Payload 参数:**
+| 参数名 | 类型 | Optional? | 描述 | 示例 |
+| -------------------------------- | ------ | --------- | ---------------------------------------------------------------------- | ------------------------- |
+| `recipient_user_id` | string | 否 | 原始消息接收者的用户 ID (即与谁的聊天会话中的消息)。 | `"usr_friend456"` |
+| `server_message_id_to_recall` | string | 否 | 需要被撤回的消息在服务器端生成的唯一 ID (`server_message_id`)。 | `"srv_msg_xyz789"` |
+| `client_recall_request_id` | string | 是 | 客户端生成的撤回请求 ID，用于追踪撤回请求的状态。服务端在 ACK 中会回显此 ID。 | `"client_recall_uuid_001"`|
+
+---
+
+### 3.3.2. `PRIVATE_CHAT_MESSAGE_RECALLED_ACK` (Server -> Client, to Sender)
+
+-   **消息类型 ID**: `205`
+-   **JSON `type` 字符串**: `"PRIVATE_CHAT_MESSAGE_RECALLED_ACK"`
+
+服务器在处理完撤回请求后，向发起撤回的客户端发送此确认消息。
+
+**JSON 示例 (成功):**
+
+```json
+{
+    "message_id": "ack_recall_srv_uuid_002",
+    "type": "PRIVATE_CHAT_MESSAGE_RECALLED_ACK",
+    "timestamp": "2025-05-15T11:10:01Z",
+    "token": null,
+    "correlation_id": "r3c4ll_req_uuid_001",
+    "payload": {
+        "status": true,
+        "status_message": "Message recall request processed successfully.",
+        "recalled_server_message_id": "srv_msg_xyz789",
+        "client_recall_request_id": "client_recall_uuid_001"
+    }
+}
+```
+
+**JSON 示例 (失败 - 例如消息不存在或超时):**
+
+```json
+{
+    "message_id": "ack_recall_srv_uuid_003",
+    "type": "PRIVATE_CHAT_MESSAGE_RECALLED_ACK",
+    "timestamp": "2025-05-15T11:10:02Z",
+    "token": null,
+    "correlation_id": "r3c4ll_req_uuid_002",
+    "payload": {
+        "status": false,
+        "status_message": "Message not found or recall window expired.",
+        "recalled_server_message_id": "srv_msg_nonexistent123",
+        "client_recall_request_id": "client_recall_uuid_002"
+    }
+}
+```
+
+**Payload 参数:**
+| 参数名 | 类型 | Optional? | 描述 | 示例 |
+| -------------------------------- | ------ | --------- | -------------------------------------------------------------------- | --------------------------------------------- |
+| `status` | bool | 否 | 撤回操作是否成功 | `true` |
+| `status_message` | string | 否 | 描述撤回操作结果的消息。 | `"Message recall request processed successfully."` |
+| `recalled_server_message_id` | string | 否 | 被尝试撤回的消息的 `server_message_id`。 | `"srv_msg_xyz789"` |
+| `client_recall_request_id` | string | 是 | 如果客户端在请求中提供了此 ID，服务器将其回显。 | `"client_recall_uuid_001"` |
+
+---
+
+### 3.3.3. `RECEIVE_PRIVATE_CHAT_MESSAGE_RECALL_NOTIFICATION` (Server -> Client, to Recipient)
+
+-   **消息类型 ID**: `206`
+-   **JSON `type` 字符串**: `"RECEIVE_PRIVATE_CHAT_MESSAGE_RECALL_NOTIFICATION"`
+
+当一条消息被发送者撤回后，服务器向该消息的接收方发送此通知。
+
+**JSON 示例:**
+
+```json
+{
+    "message_id": "ntf_recall_srv_uuid_004",
+    "type": "RECEIVE_PRIVATE_CHAT_MESSAGE_RECALL_NOTIFICATION",
+    "timestamp": "2025-05-15T11:10:03Z",
+    "token": null,
+    "correlation_id": null,
+    "payload": {
+        "server_message_id_to_recall": "srv_msg_xyz789",
+        "recalled_by_user_id": "usr_sender123",
+        "chat_partner_user_id": "usr_sender123",
+        "recall_timestamp": "2025-05-15T11:10:00Z"
+    }
+}
+```
+
+**Payload 参数:**
+| 参数名 | 类型 | Optional? | 描述 | 示例 |
+| ------------------------------- | --------------- | --------- | ------------------------------------------------------------------------ | ------------------------- |
+| `server_message_id_to_recall` | string | 否 | 被撤回的消息的 `server_message_id`。接收方客户端根据此 ID 找到并处理本地消息。 | `"srv_msg_xyz789"` |
+| `recalled_by_user_id` | string | 否 | 发起撤回操作的用户 ID (即原始消息的发送者)。 | `"usr_sender123"` |
+| `chat_partner_user_id` | string | 否 | 对于接收方而言，这是其聊天对象的 ID，即消息的发送者。 | `"usr_sender123"` |
+| `recall_timestamp` | string (ISO8601)| 否 | 撤回操作发生的原始时间戳（即发送方客户端发起撤回请求的时间）。 | `"2025-05-15T11:10:00Z"` |
+
+---
+
+## 撤回消息处理规则 (Message Recall Handling Rules)
+
+### 服务器处理规则:
+
+1.  **验证请求**:
+    -   验证 `token` 的有效性。
+    -   验证发起撤回请求的用户是否是 `server_message_id_to_recall` 对应消息的原始发送者。
+    -   **(可选)** 检查消息是否在允许的撤回时间窗口内（例如，发送后的 X 分钟内）。如果超出时间窗口，可以拒绝撤回。
+    -   检查消息是否存在且尚未被撤回。
+2.  **处理撤回**:
+    -   如果验证通过，服务器应记录该消息已被撤回（例如，在数据库中标记）。这可以防止将来再次尝试传递该消息（如果它之前因接收方离线而未送达）。
+    -   向发起撤回的客户端发送 `PRIVATE_CHAT_MESSAGE_RECALLED_ACK`。
+    -   向消息的接收方客户端（`recipient_user_id`）发送 `RECEIVE_PRIVATE_CHAT_MESSAGE_RECALL_NOTIFICATION`。如果接收方当前不在线，则在其下次上线时发送此通知，类似于离线消息推送。
+3.  **E2EE 消息**: 对于 E2EE 消息，服务器无法访问或修改消息内容。撤回操作仅针对消息的元数据和传递状态。服务器的角色是通知相关客户端发生了撤回事件。
+4.  **明文消息**: 对于明文消息，服务器理论上可以从其存储中删除消息体（如果它有存储的话），但主要目的仍然是通知客户端。
+
+### 客户端处理规则 (发送方):
+
+1.  **发起撤回**: 用户选择撤回某条已发送的消息。客户端应使用该消息的 `server_message_id` (在 `PRIVATE_CHAT_MESSAGE_SENT_ACK` 中获得) 来构建 `RECALL_PRIVATE_CHAT_MESSAGE_REQUEST`。
+2.  **处理确认**:
+    -   收到 `PRIVATE_CHAT_MESSAGE_RECALLED_ACK` 后，根据 `status` 更新本地 UI。
+    -   如果成功，可以在本地将对应消息标记为"已撤回"或更新其显示状态。
+    -   如果失败 (例如超时、消息已被对方读取且服务器策略不允许再撤回等)，则向用户显示相应的错误信息。
+
+### 客户端处理规则 (接收方):
+
+1.  **接收撤回通知**: 收到 `RECEIVE_PRIVATE_CHAT_MESSAGE_RECALL_NOTIFICATION`。
+2.  **处理消息**:
+    -   根据 `payload.server_message_id_to_recall` 找到本地存储的对应消息。
+    -   将该消息标记为"已撤回"。UI 上通常会显示类似"此消息已被撤回"的提示，而不是直接删除，以免造成对话上下文的困惑。
+    -   **重要**: 如果消息是 E2EE 并且已被解密并存储在本地，客户端应确保该解密后的内容不再对用户可见。具体实现可以是删除解密内容，或用占位符替换。
+    -   如果收到针对一条不存在的 `server_message_id` 的撤回通知（例如，由于网络延迟或状态不同步，消息在撤回通知到达前已被本地删除），客户端应静默忽略或记录一个低优先级的日志。
+
+### 对 E2EE 模式的影响:
+
+-   撤回功能不破坏 E2EE 的安全性。服务器仍然不知道消息内容。
+-   撤回的"效力"依赖于接收方客户端的正确实现。如果接收方客户端被篡改或不遵守协议，它可能不会隐藏已接收和解密的消息。
+-   一旦消息在接收端被解密并显示，撤回操作无法保证消息内容完全从接收者的视野或记忆中消失，它主要是在应用层面移除消息的展示。
+
+---
+
+## 数据结构定义
+
+### `MessageContent`
+
+用于承载消息内容，支持明文、Signal PreKey 和 Signal Ratchet 三种类型。
+
+| 参数名                          | 类型            | `type` 条件       | 描述                                                                                                                            | 示例                                |
+| ------------------------------- | --------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
+| `type`                          | string (enum)   | (所有类型共有)    | 消息内容类型。必须是以下之一：`"plaintext"`, `"prekey"`, `"ratchet"`。                                                          | `"prekey"`                          |
+| `body`                          | string          | (所有类型共有)    | 消息主体。如果 `type` 为 `"plaintext"`，则为 UTF-8 明文字符串；如果为 `"prekey"` 或 `"ratchet"`，则为 Base64 编码的密文字符串。 | `"Hello!"` 或 `"U29tZSBFbmN..."`    |
+| `sender_identity_public_key`    | string          | `"prekey"`        | **仅当`type`为`"prekey"`时出现。** 发送者的身份公钥 (IK_pub), Base64 编码。                                                     | `"base64_sender_IK_pub"`            |
+| `sender_ephemeral_public_key`   | string          | `"prekey"`        | **仅当`type`为`"prekey"`时出现。** 发送者此次消息/会话的临时公钥 (EK_pub), Base64 编码。                                        | `"base64_sender_EK_pub"`            |
+| `recipient_signed_pre_key_id`   | int             | `"prekey"`        | **仅当`type`为`"prekey"`时出现。** 接收方被使用的签名预共享密钥(SPK)的 ID。                                                     | `123456`                            |
+| `recipient_one_time_pre_key_id` | int             | `"prekey"` (可选) | **仅当`type`为`"prekey"`时出现。** 接收方被使用的一次性预共享密钥(OPK)的 ID (如果 OPK 被使用)。                                 | `123457`                            |
+| `ratchet_header`                | `RatchetHeader` | `"ratchet"`       | **仅当`type`为`"ratchet"`时出现。** 包含双棘轮算法所需头部信息。如果`type`不为`"ratchet"`，此字段应为`null`或不存在。           | `{...}` (参见 `RatchetHeader` 定义) |
+
+### `RatchetHeader`
+
+用于双棘轮消息的头部信息（此结构保持不变）。
+
+| 参数名                             | 类型   | Optional? | 描述                                                                                        |
+| ---------------------------------- | ------ | --------- | ------------------------------------------------------------------------------------------- |
+| `sender_ratchet_public_key`        | string | 否        | 发送方当前棘轮公钥 (例如 X25519 的公钥)，Base64 编码。接收方用于执行 DH 棘轮步骤。          |
+| `message_number_in_chain`          | int    | 否        | 此消息在当前发送链中的序号 (N)，从 0 开始计数。                                             |
+| `previous_message_number_in_chain` | int    | 否        | 发送方在**上一个**发送链（即上一次 DH 棘轮步骤之后）中已发送的消息总数 (PN)。用于处理乱序。 |
+
+---
+
+### 4. 在线状态与心跳 (Presence & Heartbeat)
+
+# 在线状态与心跳 (Presence & Heartbeat)
+
+## 概述
+
+本部分定义了用户在线状态管理和心跳检测机制。这些功能对于维护实时通信状态和确保连接活跃性至关重要。
+
+**用户状态枚举值：**
+
+协议支持以下用户状态值（对应代码中的 `UserStatus` 枚举）：
+
+-   `"ONLINE"` - 用户在线且活跃
+-   `"OFFLINE"` - 用户离线
+-   `"UNKNOWN"` - 用户状态未知 (例如，尝试查询的用户不存在于数据库中时，作为一种可能的标记，但更推荐使用标准的 `ERROR_RESPONSE` 来指示用户未找到)
+-   [ ] `"AWAY"` - 用户暂时离开
+-   [ ] `"BUSY"` - 用户忙碌中
+-   [ ] `"INVISIBLE"` - 用户隐身模式
+-   [ ] `"PENDING"` - 用户状态待定
+-   [ ] `"BANNED"` - 用户被禁止
+
+---
+
+## 5.1. 心跳 (Heartbeat)
+
+### `HEARTBEAT_REQUEST` (Client -> Server)
+
+-   **消息类型 ID**: `401`
+-   **JSON `type` 字符串**: `"HEARTBEAT_REQUEST"`
+
+**JSON 示例:**
+
+```json
+{
+    "message_id": "cb2i4k7m-lgk5-6h01-80j0-j4k7i3g5m6j7",
+    "type": "HEARTBEAT_REQUEST",
+    "timestamp": "2025-05-15T11:20:00Z",
+    "token": "current_user_session_token",
+    "correlation_id": null,
+    "payload": {
+        "client_timestamp": "2025-05-15T11:19:59Z"
+    }
+}
+```
+
+**Payload (对应 `HeartbeatRequestPayload` Pydantic 模型):**
+| 参数名 | 类型 | Optional? | 描述 | 示例 |
+| ------------------ | ---------------- | --------- | ----------------------------- | ------------------------ |
+| `client_timestamp` | string (ISO8601) | 否 | 客户端发送心跳时的本地时间。Pydantic 模型中为 `datetime` 类型。 | `"2025-05-15T11:19:59Z"` |
+
+### `HEARTBEAT_RESPONSE` (Server -> Client)
+
+-   **消息类型 ID**: `402`
+-   **JSON `type` 字符串**: `"HEARTBEAT_RESPONSE"`
+
+**JSON 示例:**
+
+```json
+{
+    "message_id": "sh7o5n4m-m2k1-1j19-9875-onmlkjihgfed",
+    "type": "HEARTBEAT_RESPONSE",
+    "timestamp": "2025-05-15T11:20:00Z",
+    "token": null,
+    "correlation_id": "cb2i4k7m-lgk5-6h01-80j0-j4k7i3g5m6j7",
+    "payload": {
+        "server_timestamp": "2025-05-15T11:20:00Z"
+    }
+}
+```
+
+**Payload (对应 `HeartbeatResponsePayload` Pydantic 模型):**
+| 参数名 | 类型 | Optional? | 描述 | 示例 |
+| ------------------ | ---------------- | --------- | ----------------------------- | ------------------------ |
+| `server_timestamp` | string (ISO8601) | 否 | 服务器当前时间。Pydantic 模型中为 `datetime` 类型。 | `"2025-05-15T11:20:00Z"` |
+
+**注意**: `HEARTBEAT_RESPONSE` 是可选实现。如果客户端需要确认心跳被服务器接收，服务器应发送此响应。
+
+---
+
+## 5.2. 用户状态更新 (User Status Update)
+
+### `USER_STATUS_UPDATE_NOTIFICATION` (Server -> Client, to relevant Clients)
+
+-   **消息类型 ID**: `403`
+-   **JSON `type` 字符串**: `"USER_STATUS_UPDATE_NOTIFICATION"`
+
+**JSON 示例:**
+
+```json
+{
+    "message_id": "si8p6o5n-n3l2-2k20-9876-ponmlkjihgfe",
+    "type": "USER_STATUS_UPDATE_NOTIFICATION",
+    "timestamp": "2025-05-15T11:05:01Z",
+    "token": null,
+    "correlation_id": null,
+    "payload": {
+        "content": {
+            "user_id": "usr_friend456",
+            "username": "FriendUser",
+            "status": "ONLINE",
+            "last_seen": null
+        }
+    }
+}
+```
+
+**Payload (对应 `UserStatusUpdateNotificationPayload` Pydantic 模型):**
+| 参数名 | 类型 | Optional? | 描述 | 示例 |
+| --------- | ---------------- | --------- | ------------------------------------------ | ---- |
+| `content` | `UserStatusInfo` | 否 | 包含完整用户状态信息的对象。详见下方 `UserStatusInfo` 结构定义。 | |
+
+---
+
+## 5.3. 查询用户状态 (Query User Status)
+
+### `QUERY_USER_STATUS_REQUEST` (Client -> Server)
+
+-   **消息类型 ID**: `404`
+-   **JSON `type` 字符串**: `"QUERY_USER_STATUS_REQUEST"`
+
+**JSON 示例:**
+
+```json
+{
+    "message_id": "sj9q7p6o-o4n3-3l21-9877-qponmlkjihgf",
+    "type": "QUERY_USER_STATUS_REQUEST",
+    "timestamp": "2025-05-15T11:06:00Z",
+    "token": "current_user_session_token",
+    "correlation_id": null,
+    "payload": {
+        "target_user_ids": ["usr_friend456", "usr_friend789"]
+    }
+}
+```
+
+**Payload (对应 `QueryUserStatusRequestPayload` Pydantic 模型):**
+| 参数名 | 类型 | Optional? | 描述 | 示例 |
+| ----------------- | ------------- | --------------------------------------------- | -------------------------------------------------------------------- | ------------------------------------ |
+| `target_user_ids` | List[string] | 是 (Pydantic 模型中 `default=[]`, 实际发送时可为空列表) | 要查询状态的用户 ID 列表。如果为空列表或 `null` (根据服务器实现处理 `None` 的方式)，服务器返回所有当前在线用户的状态信息。 | `["usr_friend456", "usr_friend789"]` |
+
+**特殊行为：在线用户发现**
+
+当 `target_user_ids` 为空列表 (或 `null`, 取决于服务器如何处理该字段的缺失或 `None` 值) 时，服务器返回所有当前在线用户的状态信息。这解决了新用户登录时的"鸡生蛋、蛋生鸡"问题：
+
+1.  新用户登录后不知道有哪些用户在线。
+2.  发送空的 `target_user_ids` 列表可以发现所有在线用户。
+3.  之后可以通过状态更新通知保持同步。
+
+### `QUERY_USER_STATUS_RESPONSE` (Server -> Client)
+
+-   **消息类型 ID**: `405`
+-   **JSON `type` 字符串**: `"QUERY_USER_STATUS_RESPONSE"`
+
+**JSON 示例:**
+
+```json
+{
+    "message_id": "sk0s8r7q-p5o4-4n22-9878-srqponmlkjih",
+    "type": "QUERY_USER_STATUS_RESPONSE",
+    "timestamp": "2025-05-15T11:06:01Z",
+    "token": null,
+    "correlation_id": "sj9q7p6o-o4n3-3l21-9877-qponmlkjihgf",
+    "payload": {
+        "results": [
+            {
+                "user_id": "usr_friend456",
+                "username": "FriendUser",
+                "status": "ONLINE",
+                "last_seen": null
+            },
+            {
+                "user_id": "usr_friend789",
+                "username": "AnotherFriend",
+                "status": "OFFLINE",
+                "last_seen": "2025-05-15T10:30:00Z"
+            }
+        ]
+    }
+}
+```
+
+**Payload (对应 `QueryUserStatusResponsePayload` Pydantic 模型):**
+| 参数名 | 类型 | Optional? | 描述 | 示例 |
+| --------- | --------------------- | --------- | ------------------------------------------ | ---- |
+| `results` | List[`UserStatusInfo`] | 否 | 查询结果列表，包含每个用户的完整 `UserStatusInfo` 对象。 | |
+
+---
+
+## 数据结构定义
+
+### `UserStatusInfo`
+
+用户状态信息的完整结构 (对应 `UserStatusInfo` Pydantic 模型)：
+
+| 参数名      | 类型                                              | Optional? | 描述                                                                  | 示例                               |
+| ----------- | ------------------------------------------------- | --------- | --------------------------------------------------------------------- | ---------------------------------- |
+| `user_id`   | string (Pydantic: `UserId`)                       | 否        | 用户的唯一 ID。                                                       | `"usr_friend456"`                  |
+| `username`  | string                                            | 否        | 用户名。                                                              | `"FriendUser"`                     |
+| `status`    | string (Pydantic: `UserStatus` enum)              | 否        | 用户当前状态，使用上述枚举值之一。                                    | `"ONLINE"`                         |
+| `last_seen` | string (ISO8601) (Pydantic: `Optional[datetime]`) | 是        | 用户最后活跃时间。根据你的定义，在线时可为 `null`，离线时提供时间戳。 | `"2025-05-15T10:30:00Z"` or `null` |
+
+
+### 5. 群组聊天 (Group Chat)
+
+# 群聊协议文档(Group Chat)
+
+## 概述
+
+TODO: 添加 MLS 加密方案的改进版
+
+> **注意**：本文档中所有时间戳字段在 API 中以 ISO8601 格式字符串表示（如"2025-05-30T09:00:00Z"），但在实际代码实现中使用 datetime 对象进行处理。
+
+---
+
+## 5.1. 群组管理 (Group Management)
+
+### 5.1.1. 创建群组 (Create Group)
+
+用户创建一个新的群组。
+
+-   **`CREATE_GROUP_REQUEST` (Client -> Server)**
+
+    -   消息类型 ID (type string): `"CREATE_GROUP_REQUEST"`
+    -   消息类型数字 ID: `501`
+
+    **JSON 示例:**
+
+    ```json
+    {
+        "message_id": "create_grp_req_001",
+        "type": "CREATE_GROUP_REQUEST",
+        "timestamp": "2025-05-30T09:00:00Z",
+        "token": "current_user_session_token",
+        "correlation_id": null,
+        "payload": {
+            "group_name": "Tech Discussion Group",
+            "group_description": "Share programming knowledge"
+        }
+    }
+    ```
+
+    **Payload 参数:**
+    | 字段名 | 类型 | 可选 | 描述 | 示例 |
+    | ------------------- | ------ | ---- | -------------- | -------------------- |
+    | `group_name` | string | 否 | 群组名称 | `"技术交流小组"` |
+    | `group_description` | string | 是 | 群组描述 (可选) | `"分享编程知识"` |
+
+-   **`CREATE_GROUP_RESPONSE` (Server -> Client)**
+
+    -   消息类型 ID (type string): `"CREATE_GROUP_RESPONSE"`
+    -   消息类型数字 ID: `502`
+
+    **JSON 示例 (成功):**
+
+    ```json
+    {
+        "message_id": "create_grp_resp_001",
+        "type": "CREATE_GROUP_RESPONSE",
+        "timestamp": "2025-05-30T09:00:01Z",
+        "token": null,
+        "correlation_id": "create_grp_req_001",
+        "payload": {
+            "success": true,
+            "message": "Group created successfully",
+            "group_id": "grp_uuid_123",
+            "group_name": "Tech Discussion Group",
+            "group_description": "Share programming knowledge"
+        }
+    }
+    ```
+
+    **JSON 示例 (失败):**
+
+    ```json
+    {
+        "message_id": "create_grp_resp_002",
+        "type": "CREATE_GROUP_RESPONSE",
+        "timestamp": "2025-05-30T09:00:01Z",
+        "token": null,
+        "correlation_id": "create_grp_req_002",
+        "payload": {
+            "success": false,
+            "message": "Group name already exists"
+        }
+    }
+    ```
+
+    **Payload 参数:**
+    | 字段名 | 类型 | 可选 | 描述 | 示例 |
+    | ------------------- | ------- | ---- | ---------------------------------------- | -------------------- |
+    | `success` | boolean | 否 | 操作是否成功 | `true` |
+    | `message` | string | 否 | 操作结果信息 (例如 "群组创建成功") | `"群组创建成功"` |
+    | `group_id` | string | 是 | 如果成功，返回新创建群组的唯一 ID | `"grp_uuid_123"` |
+    | `group_name` | string | 是 | 如果成功，返回群组名称 | `"技术交流小组"` |
+    | `group_description` | string | 是 | 如果成功且提供，返回群组描述 | `"分享编程知识"` |
+
+### 5.1.2. 更新群组信息 (Update Group Information)
+
+群组管理员更新群组的名称或描述。
+
+-   **`UPDATE_GROUP_INFO_REQUEST` (Client -> Server)**
+
+    -   消息类型 ID (type string): `"UPDATE_GROUP_INFO_REQUEST"`
+    -   消息类型数字 ID: `503`
+
+    **JSON 示例:**
+
+    ```json
+    {
+        "message_id": "update_grp_req_001",
+        "type": "UPDATE_GROUP_INFO_REQUEST",
+        "timestamp": "2025-05-30T09:30:00Z",
+        "token": "admin_user_session_token",
+        "correlation_id": null,
+        "payload": {
+            "group_id": "grp_uuid_123",
+            "group_name": "Advanced Tech Group",
+            "group_description": "Explore cutting-edge technology"
+        }
+    }
+    ```
+
+    **Payload 参数:**
+    | 字段名 | 类型 | 可选 | 描述 | 示例 |
+    | ------------------- | ------ | ---- | ---------------------------- | -------------------- |
+    | `group_id` | string | 否 | 要更新的群组 ID | `"grp_uuid_123"` |
+    | `group_name` | string | 是 | 新的群组名称 (如果更改) | `"技术分享精英群"` |
+    | `group_description` | string | 是 | 新的群组描述 (如果更改) | `"深入探讨前沿技术"` |
+
+-   **`UPDATE_GROUP_INFO_RESPONSE` (Server -> Client)**
+
+    -   消息类型 ID (type string): `"UPDATE_GROUP_INFO_RESPONSE"`
+    -   消息类型数字 ID: `504`
+
+    **JSON 示例 (成功):**
+
+    ```json
+    {
+        "message_id": "update_grp_resp_001",
+        "type": "UPDATE_GROUP_INFO_RESPONSE",
+        "timestamp": "2025-05-30T09:30:01Z",
+        "token": null,
+        "correlation_id": "update_grp_req_001",
+        "payload": {
+            "success": true,
+            "message": "Group information updated successfully",
+            "group_id": "grp_uuid_123",
+            "group_name": "Advanced Tech Group",
+            "group_description": "Explore cutting-edge technology"
+        }
+    }
+    ```
+
+    **Payload 参数:**
+    | 字段名 | 类型 | 可选 | 描述 | 示例 |
+    | ------------------- | ------- | ---- | ---------------------------------- | -------------------- |
+    | `success` | boolean | 否 | 操作是否成功 | `true` |
+    | `message` | string | 否 | 操作结果信息 | `"群组信息更新成功"` |
+    | `group_id` | string | 是 | 群组 ID | `"grp_uuid_123"` |
+    | `group_name` | string | 是 | 更新后的群组名称 (如果成功且更改) | `"技术分享精英群"` |
+    | `group_description` | string | 是 | 更新后的群组描述 (如果成功且更改) | `"深入探讨前沿技术"` |
+
+-   **`GROUP_INFO_UPDATED_NOTIFICATION` (Server -> Group Members)**
+
+    -   消息类型 ID (type string): `"GROUP_INFO_UPDATED_NOTIFICATION"`
+    -   消息类型数字 ID: `505`
+
+    **JSON 示例:**
+
+    ```json
+    {
+        "message_id": "grp_info_updated_ntf_001",
+        "type": "GROUP_INFO_UPDATED_NOTIFICATION",
+        "timestamp": "2025-05-30T09:30:02Z",
+        "token": null,
+        "correlation_id": null,
+        "payload": {
+            "group_id": "grp_uuid_123",
+            "updated_by_user_id": "usr_admin_001",
+            "updated_by_username": "Admin John",
+            "new_group_name": "Advanced Tech Group",
+            "new_group_description": "Explore cutting-edge technology"
+        }
+    }
+    ```
+
+    **Payload 参数:**
+    | 字段名 | 类型 | 可选 | 描述 | 示例 |
+    | ------------------------ | ------ | ---- | ---------------------------- | ---------------------- |
+    | `group_id` | string | 否 | 被更新的群组 ID | `"grp_uuid_123"` |
+    | `updated_by_user_id` | string | 否 | 执行更新操作的用户 ID | `"usr_admin_001"` |
+    | `updated_by_username` | string | 否 | 执行更新操作的用户名 | `"管理员张三"` |
+    | `new_group_name` | string | 是 | 更新后的群组名称 (如果更改) | `"技术分享精英群"` |
+    | `new_group_description` | string | 是 | 更新后的群组描述 (如果更改) | `"深入探讨前沿技术"` |
+
+### 5.1.3. 加入群组 (Join Group)
+
+用户请求加入一个群组。为简化，本协议假设服务器直接处理加入请求（例如，公开群组或服务器自动批准）。
+
+-   **`JOIN_GROUP_REQUEST` (Client -> Server)**
+
+    -   消息类型 ID (type string): `"JOIN_GROUP_REQUEST"`
+    -   消息类型数字 ID: `506`
+
+    **JSON 示例:**
+
+    ```json
+    {
+        "message_id": "join_grp_req_001",
+        "type": "JOIN_GROUP_REQUEST",
+        "timestamp": "2025-05-30T10:00:00Z",
+        "token": "newbie_user_session_token",
+        "correlation_id": null,
+        "payload": {
+            "group_id": "grp_uuid_123"
+        }
+    }
+    ```
+
+    **Payload 参数:**
+    | 字段名 | 类型 | 可选 | 描述 | 示例 |
+    | ---------- | ------ | ---- | -------------- | ---------------- |
+    | `group_id` | string | 否 | 要加入的群组 ID | `"grp_uuid_123"` |
+
+-   **`JOIN_GROUP_RESPONSE` (Server -> Client)**
+
+    -   消息类型 ID (type string): `"JOIN_GROUP_RESPONSE"`
+    -   消息类型数字 ID: `507`
+
+    **JSON 示例 (成功):**
+
+    ```json
+    {
+        "message_id": "join_grp_resp_001",
+        "type": "JOIN_GROUP_RESPONSE",
+        "timestamp": "2025-05-30T10:00:01Z",
+        "token": null,
+        "correlation_id": "join_grp_req_001",
+        "payload": {
+            "success": true,
+            "message": "Successfully joined group",
+            "group_id": "grp_uuid_123",
+            "group_name": "Advanced Tech Group"
+        }
+    }
+    ```
+
+    **Payload 参数:**
+    | 字段名 | 类型 | 可选 | 描述 | 示例 |
+    | ------------ | ------- | ---- | ---------------------------- | ---------------- |
+    | `success` | boolean | 否 | 操作是否成功 | `true` |
+    | `message` | string | 否 | 操作结果信息 | `"成功加入群组"` |
+    | `group_id` | string | 是 | 群组 ID (如果成功) | `"grp_uuid_123"` |
+    | `group_name` | string | 是 | 群组名称 (如果成功) | `"技术交流小组"` |
+
+-   **`USER_JOINED_GROUP_NOTIFICATION` (Server -> Group Members)**
+
+    -   消息类型 ID (type string): `"USER_JOINED_GROUP_NOTIFICATION"`
+    -   消息类型数字 ID: `508`
+
+    **JSON 示例:**
+
+    ```json
+    {
+        "message_id": "user_joined_ntf_001",
+        "type": "USER_JOINED_GROUP_NOTIFICATION",
+        "timestamp": "2025-05-30T10:00:02Z",
+        "token": null,
+        "correlation_id": null,
+        "payload": {
+            "group_id": "grp_uuid_123",
+            "joined_user_id": "usr_newbie_007",
+            "joined_username": "NewUser Mike"
+        }
+    }
+    ```
+
+    **Payload 参数:**
+    | 字段名 | 类型 | 可选 | 描述 | 示例 |
+    | ----------------- | ------ | ---- | -------------- | ------------------- |
+    | `group_id` | string | 否 | 相关群组 ID | `"grp_uuid_123"` |
+    | `joined_user_id` | string | 否 | 加入用户的 ID | `"usr_newbie_007"` |
+    | `joined_username` | string | 否 | 加入用户的用户名 | `"新手小明"` |
+
+### 5.1.4. 退出群组 (Leave Group)
+
+用户主动退出一个群组。
+
+-   **`LEAVE_GROUP_REQUEST` (Client -> Server)**
+
+    -   消息类型 ID (type string): `"LEAVE_GROUP_REQUEST"`
+    -   消息类型数字 ID: `509`
+
+    **JSON 示例:**
+
+    ```json
+    {
+        "message_id": "leave_grp_req_001",
+        "type": "LEAVE_GROUP_REQUEST",
+        "timestamp": "2025-05-30T11:00:00Z",
+        "token": "user_session_token",
+        "correlation_id": null,
+        "payload": {
+            "group_id": "grp_uuid_123"
+        }
+    }
+    ```
+
+    **Payload 参数:**
+    | 字段名 | 类型 | 可选 | 描述 | 示例 |
+    | ---------- | ------ | ---- | -------------- | ---------------- |
+    | `group_id` | string | 否 | 要退出的群组 ID | `"grp_uuid_123"` |
+
+-   **`LEAVE_GROUP_RESPONSE` (Server -> Client)**
+
+    -   消息类型 ID (type string): `"LEAVE_GROUP_RESPONSE"`
+    -   消息类型数字 ID: `510`
+
+    **JSON 示例 (成功):**
+
+    ```json
+    {
+        "message_id": "leave_grp_resp_001",
+        "type": "LEAVE_GROUP_RESPONSE",
+        "timestamp": "2025-05-30T11:00:01Z",
+        "token": null,
+        "correlation_id": "leave_grp_req_001",
+        "payload": {
+            "success": true,
+            "message": "Successfully left group",
+            "group_id": "grp_uuid_123"
+        }
+    }
+    ```
+
+    **Payload 参数:**
+    | 字段名 | 类型 | 可选 | 描述 | 示例 |
+    | ---------- | ------- | ---- | ---------------------------- | ---------------- |
+    | `success` | boolean | 否 | 操作是否成功 | `true` |
+    | `message` | string | 否 | 操作结果信息 | `"成功退出群组"` |
+    | `group_id` | string | 是 | 群组 ID (如果成功) | `"grp_uuid_123"` |
+
+-   **`USER_LEFT_GROUP_NOTIFICATION` (Server -> Group Members)**
+
+    -   消息类型 ID (type string): `"USER_LEFT_GROUP_NOTIFICATION"`
+    -   消息类型数字 ID: `511`
+
+    **JSON 示例:**
+
+    ```json
+    {
+        "message_id": "user_left_ntf_001",
+        "type": "USER_LEFT_GROUP_NOTIFICATION",
+        "timestamp": "2025-05-30T11:00:02Z",
+        "token": null,
+        "correlation_id": null,
+        "payload": {
+            "group_id": "grp_uuid_123",
+            "left_user_id": "usr_oldbie_001",
+            "left_username": "Former User Bob"
+        }
+    }
+    ```
+
+    **Payload 参数:**
+    | 字段名 | 类型 | 可选 | 描述 | 示例 |
+    | --------------- | ------ | ---- | -------------- | ------------------- |
+    | `group_id` | string | 否 | 相关群组 ID | `"grp_uuid_123"` |
+    | `left_user_id` | string | 否 | 退出用户的 ID | `"usr_oldbie_001"` |
+    | `left_username` | string | 否 | 退出用户的用户名 | `"老王"` |
+
+### 5.1.5. 获取群组列表 (Get Group List)
+
+客户端请求获取群组列表。如果提供用户 ID，则返回该用户加入的群组；否则返回服务器上的所有群组信息。
+
+-   **`GET_GROUPS_REQUEST` (Client -> Server)**
+
+    -   消息类型 ID (type string): `"GET_GROUPS_REQUEST"`
+    -   消息类型数字 ID: `518`
+
+    **JSON 示例 (获取当前用户的群组):**
+
+    ```json
+    {
+        "message_id": "get_groups_req_001",
+        "type": "GET_GROUPS_REQUEST",
+        "timestamp": "2025-05-30T12:00:00Z",
+        "token": "user_session_token",
+        "correlation_id": null,
+        "payload": {}
+    }
+    ```
+
+    **JSON 示例 (获取指定用户的群组):**
+
+    ```json
+    {
+        "message_id": "get_groups_req_002",
+        "type": "GET_GROUPS_REQUEST",
+        "timestamp": "2025-05-30T12:00:00Z",
+        "token": "admin_session_token",
+        "correlation_id": null,
+        "payload": {
+            "user_id": "usr_target_001"
+        }
+    }
+    ```
+
+    **JSON 示例 (获取所有群组):**
+
+    ```json
+    {
+        "message_id": "get_groups_req_003",
+        "type": "GET_GROUPS_REQUEST",
+        "timestamp": "2025-05-30T12:00:00Z",
+        "token": "admin_session_token",
+        "correlation_id": null,
+        "payload": {
+            "get_all": true
+        }
+    }
+    ```
+
+    **Payload 参数:**
+    | 字段名 | 类型 | 可选 | 描述 | 示例 |
+    | --------- | ------- | ---- | -------------------------------------------------- | ------------------ |
+    | `user_id` | string | 是 | 指定用户 ID，获取该用户加入的群组列表 | `"usr_target_001"` |
+    | `get_all` | boolean | 是 | 设为 true 时获取服务器上的所有群组 | `true` |
+
+-   **`GET_GROUPS_RESPONSE` (Server -> Client)**
+
+    -   消息类型 ID (type string): `"GET_GROUPS_RESPONSE"`
+    -   消息类型数字 ID: `519`
+
+    **JSON 示例 (成功，有群组):**
+
+    ```json
+    {
+        "message_id": "get_groups_resp_001",
+        "type": "GET_GROUPS_RESPONSE",
+        "timestamp": "2025-05-30T12:00:01Z",
+        "token": null,
+        "correlation_id": "get_groups_req_001",
+        "payload": {
+            "success": true,
+            "groups": [
+                {
+                    "group_id": "grp_uuid_123",
+                    "group_name": "Advanced Tech Group",
+                    "group_description": "Explore cutting-edge technology",
+                    "last_message_snippet": "Hello everyone!",
+                    "unread_count": 2,
+                    "user_role": null
+                },
+                {
+                    "group_id": "grp_uuid_456",
+                    "group_name": "Product Discussion",
+                    "group_description": "Discuss our products",
+                    "last_message_snippet": "New feature discussion",
+                    "unread_count": 0,
+                    "user_role": null
+                }
+            ]
+        }
+    }
+    ```
+
+    **JSON 示例 (成功，无群组):**
+
+    ```json
+    {
+        "message_id": "get_groups_resp_002",
+        "type": "GET_GROUPS_RESPONSE",
+        "timestamp": "2025-05-30T12:00:01Z",
+        "token": null,
+        "correlation_id": "get_groups_req_002",
+        "payload": {
+            "success": true,
+            "groups": []
+        }
+    }
+    ```
+
+    **Payload 参数:**
+    | 字段名 | 类型 | 可选 | 描述 | 示例 |
+    | --------- | -------------- | ---- | ------------------------ | --------------------------------------------------------------------------------------------------- |
+    | `success` | boolean | 否 | 操作是否成功 | `true` |
+    | `groups` | Array[Object] | 是 | 群组列表。如果为空则为空数组 | `[{"group_id": "grp_1", "group_name": "群组1"}, {"group_id": "grp_2", "group_name": "群组2"}]` |
+
+    **`groups` 数组中每个对象的结构:**
+    | 字段名 | 类型 | 可选 | 描述 |
+    | ------------------------ | ------ | ---- | ---------------- |
+    | `group_id` | string | 否 | 群组的唯一 ID |
+    | `group_name` | string | 否 | 群组名称 |
+    | `group_description` | string | 是 | 群组描述 |
+    | `last_message_snippet` | string | 是 | 最后一条消息摘要 |
+    | `unread_count` | int | 是 | 未读消息数（仅当查询特定用户时可用） |
+    | `user_role` | enum | 是 | 用户在群组中的角色，如果为 null 则表示用户不是群组成员 |
+
+### 5.1.6. 添加用户到群组 (Add User to Group)
+
+群组管理员或具有相应权限的用户将另一用户添加到群组。
+
+-   **`ADD_USER_TO_GROUP_REQUEST` (Client -> Server)**
+
+    -   消息类型 ID (type string): `"ADD_USER_TO_GROUP_REQUEST"`
+    -   消息类型数字 ID: `520`
+
+    **JSON 示例:**
+
+    ```json
+    {
+        "message_id": "add_user_req_001",
+        "type": "ADD_USER_TO_GROUP_REQUEST",
+        "timestamp": "2025-05-30T14:00:00Z",
+        "token": "admin_user_session_token",
+        "correlation_id": null,
+        "payload": {
+            "group_id": "grp_uuid_123",
+            "user_id": "usr_target_002"
+        }
+    }
+    ```
+
+    **Payload 参数:**
+    | 字段名 | 类型 | 可选 | 描述 | 示例 |
+    | ---------- | ------ | ---- | ------------------------- | ---------------- |
+    | `group_id` | string | 否 | 目标群组的 ID | `"grp_uuid_123"` |
+    | `user_id` | string | 否 | 要添加到群组的用户 ID | `"usr_target_002"` |
+
+-   **`ADD_USER_TO_GROUP_RESPONSE` (Server -> Client)**
+
+    -   消息类型 ID (type string): `"ADD_USER_TO_GROUP_RESPONSE"`
+    -   消息类型数字 ID: `521`
+
+    **JSON 示例 (成功):**
+
+    ```json
+    {
+        "message_id": "add_user_resp_001",
+        "type": "ADD_USER_TO_GROUP_RESPONSE",
+        "timestamp": "2025-05-30T14:00:01Z",
+        "token": null,
+        "correlation_id": "add_user_req_001",
+        "payload": {
+            "success": true,
+            "message": "User successfully added to group",
+            "group_id": "grp_uuid_123",
+            "user_id": "usr_target_002"
+        }
+    }
+    ```
+
+    **JSON 示例 (失败):**
+
+    ```json
+    {
+        "message_id": "add_user_resp_002",
+        "type": "ADD_USER_TO_GROUP_RESPONSE",
+        "timestamp": "2025-05-30T14:00:01Z",
+        "token": null,
+        "correlation_id": "add_user_req_002",
+        "payload": {
+            "success": false,
+            "message": "Permission denied or user already in group",
+            "group_id": "grp_uuid_123",
+            "user_id": "usr_target_002"
+        }
+    }
+    ```
+
+    **Payload 参数:**
+    | 字段名 | 类型 | 可选 | 描述 | 示例 |
+    | ---------- | ------- | ---- | ------------------------------ | ------------------------------ |
+    | `success` | boolean | 否 | 操作是否成功 | `true` |
+    | `message` | string | 否 | 操作结果信息 | `"用户成功添加到群组"` |
+    | `group_id` | string | 否 | 群组 ID | `"grp_uuid_123"` |
+    | `user_id` | string | 否 | 被添加的用户 ID | `"usr_target_002"` |
+
+-   **`USER_ADDED_TO_GROUP_NOTIFICATION` (Server -> Group Members + Added User)**
+
+    -   消息类型 ID (type string): `"USER_ADDED_TO_GROUP_NOTIFICATION"`
+    -   消息类型数字 ID: `522`
+
+    **JSON 示例:**
+
+    ```json
+    {
+        "message_id": "user_added_ntf_001",
+        "type": "USER_ADDED_TO_GROUP_NOTIFICATION",
+        "timestamp": "2025-05-30T14:00:02Z",
+        "token": null,
+        "correlation_id": null,
+        "payload": {
+            "group_id": "grp_uuid_123",
+            "group_name": "Advanced Tech Group",
+            "added_user_id": "usr_target_002",
+            "added_username": "New Member Alice",
+            "added_by_user_id": "usr_admin_001",
+            "added_by_username": "Admin John"
+        }
+    }
+    ```
+
+    **Payload 参数:**
+    | 字段名 | 类型 | 可选 | 描述 | 示例 |
+    | ------------------ | ------ | ---- | -------------------- | ------------------------- |
+    | `group_id` | string | 否 | 群组 ID | `"grp_uuid_123"` |
+    | `group_name` | string | 否 | 群组名称 | `"技术交流小组"` |
+    | `added_user_id` | string | 否 | 被添加用户的 ID | `"usr_target_002"` |
+    | `added_username` | string | 否 | 被添加用户的用户名 | `"新成员小爱"` |
+    | `added_by_user_id` | string | 否 | 执行添加操作的用户 ID | `"usr_admin_001"` |
+    | `added_by_username` | string | 否 | 执行添加操作的用户名 | `"管理员张三"` |
+
+### 5.1.7. 从群组移除用户 (Remove User from Group)
+
+群组管理员将用户从群组中移除。这与用户主动退出群组不同，因为它是由管理员或其他具有权限的用户发起的。
+
+-   **`REMOVE_USER_FROM_GROUP_REQUEST` (Client -> Server)**
+
+    -   消息类型 ID (type string): `"REMOVE_USER_FROM_GROUP_REQUEST"`
+    -   消息类型数字 ID: `523`
+
+    **JSON 示例:**
+
+    ```json
+    {
+        "message_id": "remove_user_req_001",
+        "type": "REMOVE_USER_FROM_GROUP_REQUEST",
+        "timestamp": "2025-05-30T15:00:00Z",
+        "token": "admin_user_session_token",
+        "correlation_id": null,
+        "payload": {
+            "group_id": "grp_uuid_123",
+            "user_id": "usr_target_003",
+            "reason": "Violation of group rules"
+        }
+    }
+    ```
+
+    **Payload 参数:**
+    | 字段名 | 类型 | 可选 | 描述 | 示例 |
+    | ---------- | ------ | ---- | ----------------------- | ------------------------ |
+    | `group_id` | string | 否 | 群组 ID | `"grp_uuid_123"` |
+    | `user_id` | string | 否 | 要移除的用户 ID | `"usr_target_003"` |
+    | `reason` | string | 是 | 移除用户的原因（可选） | `"违反群组规则"` |
+
+-   **`REMOVE_USER_FROM_GROUP_RESPONSE` (Server -> Client)**
+
+    -   消息类型 ID (type string): `"REMOVE_USER_FROM_GROUP_RESPONSE"`
+    -   消息类型数字 ID: `524`
+
+    **JSON 示例 (成功):**
+
+    ```json
+    {
+        "message_id": "remove_user_resp_001",
+        "type": "REMOVE_USER_FROM_GROUP_RESPONSE",
+        "timestamp": "2025-05-30T15:00:01Z",
+        "token": null,
+        "correlation_id": "remove_user_req_001",
+        "payload": {
+            "success": true,
+            "message": "User successfully removed from group",
+            "group_id": "grp_uuid_123",
+            "user_id": "usr_target_003"
+        }
+    }
+    ```
+
+    **JSON 示例 (失败):**
+
+    ```json
+    {
+        "message_id": "remove_user_resp_002",
+        "type": "REMOVE_USER_FROM_GROUP_RESPONSE",
+        "timestamp": "2025-05-30T15:00:01Z",
+        "token": null,
+        "correlation_id": "remove_user_req_002",
+        "payload": {
+            "success": false,
+            "message": "Permission denied or user not in group",
+            "group_id": "grp_uuid_123",
+            "user_id": "usr_target_003"
+        }
+    }
+    ```
+
+    **Payload 参数:**
+    | 字段名 | 类型 | 可选 | 描述 | 示例 |
+    | ---------- | ------- | ---- | ------------------------------ | ------------------------------ |
+    | `success` | boolean | 否 | 操作是否成功 | `true` |
+    | `message` | string | 否 | 操作结果信息 | `"用户成功从群组移除"` |
+    | `group_id` | string | 否 | 群组 ID | `"grp_uuid_123"` |
+    | `user_id` | string | 否 | 被移除的用户 ID | `"usr_target_003"` |
+
+-   **`USER_REMOVED_FROM_GROUP_NOTIFICATION` (Server -> Group Members + Removed User)**
+
+    -   消息类型 ID (type string): `"USER_REMOVED_FROM_GROUP_NOTIFICATION"`
+    -   消息类型数字 ID: `525`
+
+    **JSON 示例:**
+
+    ```json
+    {
+        "message_id": "user_removed_ntf_001",
+        "type": "USER_REMOVED_FROM_GROUP_NOTIFICATION",
+        "timestamp": "2025-05-30T15:00:02Z",
+        "token": null,
+        "correlation_id": null,
+        "payload": {
+            "group_id": "grp_uuid_123",
+            "group_name": "Advanced Tech Group",
+            "removed_user_id": "usr_target_003",
+            "removed_username": "Former Member Dave",
+            "removed_by_user_id": "usr_admin_001",
+            "removed_by_username": "Admin John",
+            "reason": "Violation of group rules"
+        }
+    }
+    ```
+
+    **Payload 参数:**
+    | 字段名 | 类型 | 可选 | 描述 | 示例 |
+    | -------------------- | ------ | ---- | ----------------------- | ------------------------ |
+    | `group_id` | string | 否 | 群组 ID | `"grp_uuid_123"` |
+    | `group_name` | string | 否 | 群组名称 | `"技术交流小组"` |
+    | `removed_user_id` | string | 否 | 被移除用户的 ID | `"usr_target_003"` |
+    | `removed_username` | string | 否 | 被移除用户的用户名 | `"前成员小王"` |
+    | `removed_by_user_id` | string | 否 | 执行移除操作的用户 ID | `"usr_admin_001"` |
+    | `removed_by_username` | string | 否 | 执行移除操作的用户名 | `"管理员张三"` |
+    | `reason` | string | 是 | 移除用户的原因（可选） | `"违反群组规则"` |
+
+---
+
+## 5.2. 消息收发 (Message Handling)
+
+### 5.2.1. 发送群聊消息 (Send Group Chat Message)
+
+用户向指定群组发送一条文本消息。
+
+-   **`SEND_GROUP_CHAT_MESSAGE_REQUEST` (Client -> Server)**
+
+    -   消息类型 ID (type string): `"SEND_GROUP_CHAT_MESSAGE_REQUEST"`
+    -   消息类型数字 ID: `512`
+
+    **JSON 示例:**
+
+    ```json
+    {
+        "message_id": "send_grp_msg_req_001",
+        "type": "SEND_GROUP_CHAT_MESSAGE_REQUEST",
+        "timestamp": "2025-05-30T10:00:00Z",
+        "token": "user_session_token",
+        "correlation_id": null,
+        "payload": {
+            "group_id": "grp_uuid_123",
+            "content": "Hello everyone!",
+            "client_message_id": "client_msg_abc"
+        }
+    }
+    ```
+
+    **Payload 参数:**
+    | 字段名 | 类型 | 可选 | 描述 | 示例 |
+    | ------------------- | ------ | ---- | -------------------------------------- | -------------------- |
+    | `group_id` | string | 否 | 目标群组的 ID | `"grp_uuid_123"` |
+    | `content` | string | 否 | 消息的文本内容 | `"大家好！"` |
+    | `client_message_id` | string | 否 | 客户端生成的消息唯一 ID (用于追踪和去重) | `"client_msg_abc"` |
+
+-   **`SEND_GROUP_CHAT_MESSAGE_ACK` (Server -> Client, to Sender)**
+
+    -   消息类型 ID (type string): `"SEND_GROUP_CHAT_MESSAGE_ACK"`
+    -   消息类型数字 ID: `513`
+
+    **JSON 示例:**
+
+    ```json
+    {
+        "message_id": "send_grp_msg_ack_001",
+        "type": "SEND_GROUP_CHAT_MESSAGE_ACK",
+        "timestamp": "2025-05-30T10:00:01Z",
+        "token": null,
+        "correlation_id": "send_grp_msg_req_001",
+        "payload": {
+            "status_message": "Message received",
+            "server_message_id": "server_msg_xyz",
+            "client_message_id": "client_msg_abc",
+            "message_server_timestamp": "2025-05-30T10:00:01Z"
+        }
+    }
+    ```
+
+    **Payload 参数:**
+    | 字段名 | 类型 | 可选 | 描述 | 示例 |
+    | ------------------------ | ------ | ---- | ---------------------------------------- | -------------------------- |
+    | `status_message` | string | 否 | 服务器处理状态 (例如 "消息已接收") | `"消息已接收"` |
+    | `server_message_id` | string | 否 | 服务器为此消息生成的唯一 ID | `"server_msg_xyz"` |
+    | `client_message_id` | string | 否 | 回显客户端提供的 `client_message_id` | `"client_msg_abc"` |
+    | `message_server_timestamp` | string | 否 | 消息在服务器被处理和存储的时间戳 (ISO8601) | `"2025-05-30T10:00:01Z"` |
+
+### 5.2.2. 接收群聊消息 (Receive Group Message)
+
+服务器将群聊消息广播给群组内的所有在线成员（通常不包括发送者自己，发送者通过 ACK 和本地 UI 更新）。
+
+-   **`RECEIVE_GROUP_CHAT_MESSAGE_NOTIFICATION` (Server -> Client, to Group Members)**
+
+    -   消息类型 ID (type string): `"RECEIVE_GROUP_CHAT_MESSAGE_NOTIFICATION"`
+    -   消息类型数字 ID: `514`
+
+    **JSON 示例:**
+
+    ```json
+    {
+        "message_id": "recv_grp_msg_ntf_001",
+        "type": "RECEIVE_GROUP_CHAT_MESSAGE_NOTIFICATION",
+        "timestamp": "2025-05-30T10:00:02Z",
+        "token": null,
+        "correlation_id": null,
+        "payload": {
+            "group_id": "grp_uuid_123",
+            "server_message_id": "server_msg_xyz",
+            "sender_user_id": "usr_sender_001",
+            "sender_username": "Sender John",
+            "content": "Hello everyone!",
+            "message_timestamp": "2025-05-30T10:00:01Z"
+        }
+    }
+    ```
+
+    **Payload 参数:**
+    | 字段名 | 类型 | 可选 | 描述 | 示例 |
+    | ------------------- | ------ | ---- | ------------------------------ | -------------------------- |
+    | `group_id` | string | 否 | 消息所属群组的 ID | `"grp_uuid_123"` |
+    | `server_message_id` | string | 否 | 服务器生成的消息唯一 ID | `"server_msg_xyz"` |
+    | `sender_user_id` | string | 否 | 消息发送者的用户 ID | `"usr_sender_001"` |
+    | `sender_username` | string | 否 | 消息发送者的用户名 | `"发送者小张"` |
+    | `content` | string | 否 | 消息的文本内容 | `"大家好！"` |
+    | `message_timestamp` | string | 否 | 消息在服务器的权威时间戳 (ISO8601) | `"2025-05-30T10:00:01Z"` |
+
+### 5.2.3. 撤回群聊消息 (Recall Group Chat Message)
+
+消息发送者请求撤回一条已发送的消息。服务器记录撤回状态并通知群成员。
+
+-   **`RECALL_GROUP_CHAT_MESSAGE_REQUEST` (Client -> Server)**
+
+    -   消息类型 ID (type string): `"RECALL_GROUP_CHAT_MESSAGE_REQUEST"`
+    -   消息类型数字 ID: `515`
+
+    **JSON 示例:**
+
+    ```json
+    {
+        "message_id": "recall_grp_msg_req_001",
+        "type": "RECALL_GROUP_CHAT_MESSAGE_REQUEST",
+        "timestamp": "2025-05-30T10:05:00Z",
+        "token": "user_session_token",
+        "correlation_id": null,
+        "payload": {
+            "group_id": "grp_uuid_123",
+            "server_message_id_to_recall": "server_msg_xyz",
+            "client_recall_request_id": "client_recall_req_789"
+        }
+    }
+    ```
+
+    **Payload 参数:**
+    | 字段名 | 类型 | 可选 | 描述 | 示例 |
+    | ----------------------------- | ------ | ---- | ---------------------------------- | --------------------------- |
+    | `group_id` | string | 否 | 消息所在群组的 ID | `"grp_uuid_123"` |
+    | `server_message_id_to_recall` | string | 否 | 要撤回的消息的 `server_message_id` | `"server_msg_xyz"` |
+    | `client_recall_request_id` | string | 是 | 客户端生成的撤回请求 ID (用于追踪) | `"client_recall_req_789"` |
+
+-   **`GROUP_CHAT_MESSAGE_RECALLED_ACK` (Server -> Client, to Sender of recall request)**
+
+    -   消息类型 ID (type string): `"GROUP_CHAT_MESSAGE_RECALLED_ACK"`
+    -   消息类型数字 ID: `516`
+
+    **JSON 示例 (成功):**
+
+    ```json
+    {
+        "message_id": "recall_grp_msg_ack_001",
+        "type": "GROUP_CHAT_MESSAGE_RECALLED_ACK",
+        "timestamp": "2025-05-30T10:05:01Z",
+        "token": null,
+        "correlation_id": "recall_grp_msg_req_001",
+        "payload": {
+            "status_code": 200,
+            "status_message": "Message recalled successfully",
+            "recalled_server_message_id": "server_msg_xyz",
+            "client_recall_request_id": "client_recall_req_789"
+        }
+    }
+    ```
+
+    **JSON 示例 (失败):**
+
+    ```json
+    {
+        "message_id": "recall_grp_msg_ack_002",
+        "type": "GROUP_CHAT_MESSAGE_RECALLED_ACK",
+        "timestamp": "2025-05-30T10:05:01Z",
+        "token": null,
+        "correlation_id": "recall_grp_msg_req_002",
+        "payload": {
+            "status_code": 404,
+            "status_message": "Message not found or already recalled",
+            "recalled_server_message_id": "server_msg_nonexist",
+            "client_recall_request_id": "client_recall_req_999"
+        }
+    }
+    ```
+
+    **Payload 参数:**
+    | 字段名 | 类型 | 可选 | 描述 | 示例 |
+    | ---------------------------- | ------- | ---- | -------------------------------------------------------------------------- | --------------------------- |
+    | `status_code` | int | 否 | 撤回操作状态码 (例如 200 成功, 403 禁止, 404 未找到, 410 超时/窗口过期) | `200` |
+    | `status_message` | string | 否 | 描述撤回操作结果的消息 | `"消息撤回成功"` |
+    | `recalled_server_message_id` | string | 否 | 被尝试撤回的消息的 `server_message_id` | `"server_msg_xyz"` |
+    | `client_recall_request_id` | string | 是 | 如果客户端在请求中提供了此 ID，服务器将其回显 | `"client_recall_req_789"` |
+
+-   **`GROUP_CHAT_MESSAGE_RECALL_NOTIFICATION` (Server -> Client, to Group Members)**
+
+    -   消息类型 ID (type string): `"GROUP_CHAT_MESSAGE_RECALL_NOTIFICATION"`
+    -   消息类型数字 ID: `517`
+
+    **JSON 示例:**
+
+    ```json
+    {
+        "message_id": "grp_msg_recalled_ntf_001",
+        "type": "GROUP_CHAT_MESSAGE_RECALL_NOTIFICATION",
+        "timestamp": "2025-05-30T10:05:02Z",
+        "token": null,
+        "correlation_id": null,
+        "payload": {
+            "group_id": "grp_uuid_123",
+            "recalled_server_message_id": "server_msg_xyz",
+            "recalled_by_user_id": "usr_sender_001",
+            "recall_timestamp": "2025-05-30T10:05:00Z"
+        }
+    }
+    ```
+
+    **Payload 参数:**
+    | 字段名 | 类型 | 可选 | 描述 | 示例 |
+    | ---------------------------- | ------ | ---- | ------------------------------------------ | -------------------------- |
+    | `group_id` | string | 否 | 消息所在群组的 ID | `"grp_uuid_123"` |
+    | `recalled_server_message_id` | string | 否 | 被撤回消息的 `server_message_id` | `"server_msg_xyz"` |
+    | `recalled_by_user_id` | string | 否 | 发起撤回操作的用户的 ID (即原消息发送者) | `"usr_sender_001"` |
+    | `recall_timestamp` | string | 否 | 服务器处理撤回操作的时间戳 (ISO8601) | `"2025-05-30T10:05:00Z"` |
+
+**客户端处理撤回通知的建议**: 客户端在收到 `GROUP_CHAT_MESSAGE_RECALL_NOTIFICATION` 后，应在其本地消息列表中找到对应的 `recalled_server_message_id` 的消息，并将其标记为"已撤回"或替换为提示信息 (例如 "[发送者] 撤回了一条消息")，而不是直接删除，以保持对话上下文的连贯性。
+
+---
+
+## 数据结构定义
+
+### GroupUserRole
+
+用户在群组中的角色枚举，定义了用户在群组中的权限级别。
+
+| 枚举值   | 描述                                   |
+| -------- | -------------------------------------- |
+| `OWNER`  | 群主，拥有所有权限，包括解散群组       |
+| `ADMIN`  | 管理员，拥有管理成员和修改群信息的权限 |
+| `MEMBER` | 普通成员，只有基本的发言和查看权限     |
+
+
+### 7. 通用错误响应 (General Error Response)
+
+#### `ERROR_RESPONSE` (Server -> Client)
+
+-   **消息类型 ID**: `999`
+-   **JSON `type` 字符串**: `"ERROR_RESPONSE"`
+
+```json
+{
+    "message_id": "se1r0q9p-q6o5-5n23-9879-rqponmlkjihg",
+    "type": "ERROR_RESPONSE",
+    "timestamp": "2025-05-15T12:00:00Z",
+    "token": null,
+    "correlation_id": "failed_request_message_id",
+    "payload": {
+        "error_code": 3002,
+        "error_message": "Invalid username or password",
+        "error_details": {
+            "field": "password",
+            "attempted_username": "user123"
+        },
+        "retry_after": null,
+        "request_id": "req_abc123def456"
+    }
+}
+```
+
+**Payload 参数:**
+| 参数名 | 类型 | Optional? | 描述 | 示例 |
+| ---------------- | ------ | --------- | -------------------------------------------------------------------------------- | -------------------------------- |
+| `error_code` | int | 否 | 标准化错误代码，参见 [error_codes.md](./error_codes.md)。 | `3002` |
+| `error_message` | string | 否 | 人类可读的错误描述。 | `"Invalid username or password"` |
+| `error_details` | object | 是 | 可选的详细错误信息对象，包含特定错误的额外信息。 | `{"field": "password"}` |
+| `retry_after` | int | 是 | 建议客户端在多少秒后重试 (仅适用于临时错误，如速率限制)。 | `60` |
+| `request_id` | string | 是 | 服务器内部请求跟踪 ID，用于调试和日志关联。 | `"req_abc123def456"` |
+
+---
+
+**附注:**
+
+-   所有 `timestamp` 字段均使用 ISO 8601 格式的 UTC 时间，例如 `YYYY-MM-DDTHH:MM:SSZ`。
+-   `message_id` 和 `correlation_id` 推荐使用 UUID v4 格式。
+-   Pydantic 模型在实际代码中定义了这些`payload`的结构，并负责验证和序列化/反序列化。
+-   消息类型 ID (如 `101`, `102`) 需要在代码中与 `MessageType` 枚举和 JSON 中的 `type` 字符串保持一致。

@@ -7,7 +7,7 @@ import MermaidDiagram from '../components/MermaidDiagram'
   This section provides a detailed view of the message flow within the Whisper system, illustrating how different components interact during typical operations.
 </Callout>
 
-## Message Delivery Sequence
+## Authentication Sequence
 
 The following diagram illustrates the sequence of events that occurs when a message is sent from one user to another:
 
@@ -15,44 +15,60 @@ The following diagram illustrates the sequence of events that occurs when a mess
   id="message-sequence" 
   content={`
 sequenceDiagram
-    participant Sender as Sender Client
-    participant Server as Whisper Server
-    participant DB as Database
-    participant Recipient as Recipient Client
+    participant ClientApp as Client Application
+    participant ClientService as Client AuthService
+    participant ClientHandler as Client AuthHandler
+    participant ServerHandler as Server AuthHandler
+    participant ServerStorage as Server Storage
+    participant ServerSession as Server SessionManager
+    participant OtherClients as Other Online Clients
 
-    Sender->>Sender: Compose message
-    Sender->>Sender: Encrypt message with recipient's public key
-    
-    Sender->>Server: Send encrypted message
-    activate Server
-    Server->>DB: Store message
-    DB-->>Server: Confirm storage
-    
-    alt Recipient Online
-        Server->>Recipient: Forward encrypted message
-        activate Recipient
-        Recipient->>Recipient: Decrypt message with private key
-        Recipient->>Recipient: Display message to user
-        Recipient->>Server: Send delivery receipt
-        Server->>DB: Update message status
-        Server->>Sender: Confirm delivery
-        deactivate Recipient
-    else Recipient Offline
-        Server->>DB: Queue message for later delivery
-        Server->>Sender: Confirm message queued
+    Note over ClientApp, ServerSession: User Registration
+    ClientApp->>ClientService: register(username, password)
+    ClientService->>ServerHandler: REGISTER_REQUEST
+    ServerHandler->>ServerStorage: create_user(username, password)
+    ServerStorage-->>ServerHandler: User object or None
+    alt Registration Success
+        ServerHandler-->>ClientService: REGISTER_RESPONSE (success=true, user_id)
+    else Registration Failure
+        ServerHandler-->>ClientService: REGISTER_RESPONSE (success=false)
     end
-    
-    deactivate Server
-    
-    Note over Recipient: When recipient comes online
-    Recipient->>Server: Establish connection
-    Server->>DB: Retrieve queued messages
-    DB-->>Server: Return queued messages
-    Server->>Recipient: Send queued messages
-    Recipient->>Recipient: Decrypt and display messages
-    Recipient->>Server: Send delivery receipts
-    Server->>DB: Update message statuses
-    Server->>Sender: Confirm delivery (if sender online)
+    ClientService->>ClientHandler: handle_register_response(message)
+    ClientHandler->>ClientApp: Update UI (registration result)
+
+    Note over ClientApp, ServerSession: User Login
+    ClientApp->>ClientService: login(username, password)
+    ClientService->>ServerHandler: LOGIN_REQUEST
+    ServerHandler->>ServerStorage: verify_user_credentials(username, password)
+    ServerStorage-->>ServerHandler: User object or None
+    alt Login Success
+        ServerHandler->>ServerSession: authenticate_session(writer, user_id, username)
+        ServerHandler->>ServerStorage: update_user_last_login(user_id)
+        ServerHandler-->>ClientService: LOGIN_RESPONSE (success=true, user_id, username, token)
+        ServerHandler->>OtherClients: USER_STATUS_UPDATE_NOTIFICATION (user_id, username, ONLINE)
+        ClientService->>ClientHandler: handle_login_response(message)
+        ClientHandler->>ClientApp: Update UI (authenticated, user_id, username, token)
+        ClientApp->>ClientService: query_all_user_status() (Post-login action)
+        ClientApp->>ClientService: get_my_groups() (Post-login action)
+    else Login Failure
+        ServerHandler-->>ClientService: LOGIN_RESPONSE (success=false)
+        ClientService->>ClientHandler: handle_login_response(message)
+        ClientHandler->>ClientApp: Update UI (login failed)
+    end
+
+    Note over ClientApp, ServerSession: User Logout
+    ClientApp->>ClientService: logout()
+    ClientService->>ServerHandler: LOGOUT_REQUEST
+    alt User was Authenticated
+        ServerHandler->>ServerSession: deauthenticate_session(writer)
+        ServerSession-->>ServerHandler: deauthentication_result
+        ServerHandler-->>ClientService: LOGOUT_RESPONSE (success=true)
+        %% ServerHandler->>OtherClients: USER_STATUS_UPDATE_NOTIFICATION (user_id, username, OFFLINE) - TODO: Implement broadcast
+    else User Not Authenticated
+        ServerHandler-->>ClientService: ERROR_RESPONSE (Not authenticated)
+    end
+    ClientService->>ClientHandler: handle_logout_response(message)
+    ClientHandler->>ClientApp: Update UI (logged out)
   `}
 />
 
@@ -130,81 +146,278 @@ sequenceDiagram
   `}
 />
 
-## Message Synchronization Across Devices
-
-This diagram illustrates how messages are synchronized across multiple devices belonging to the same user:
+## Heartbeat Sequence
 
 <MermaidDiagram 
   id="sync-sequence" 
   content={`
 sequenceDiagram
-    participant Device1 as Device 1
-    participant Device2 as Device 2
-    participant Server as Whisper Server
-    participant DB as Database
-    
-    Device1->>Device1: Generate message
-    Device1->>Device1: Encrypt for recipient
-    Device1->>Device1: Encrypt copy for own devices
-    
-    Device1->>Server: Send encrypted message
-    Server->>DB: Store message
-    
-    alt Recipient is self device
-        Server->>Device2: Forward encrypted message
-        Device2->>Device2: Decrypt with device key
-        Device2->>Device2: Mark as synchronized
-        Device2->>Server: Confirm sync
-        Server->>DB: Update sync status
-    else Recipient is another user
-        Server->>Recipient: Forward to recipient
-        Server->>Device2: Send copy for synchronization
-        Device2->>Device2: Decrypt with device key
-        Device2->>Device2: Mark as synchronized
-        Device2->>Server: Confirm sync
-        Server->>DB: Update sync status
-    end
+    participant ClientApp as Client Application
+    participant ClientService as Client PresenceService
+    participant ClientHandler as Client PresenceHandler
+    participant ServerHandler as Server PresenceHandler
+    participant ServerStorage as Server Storage
+    participant ServerSession as Server SessionManager
+
+    Note over ClientApp, ServerSession: Heartbeat
+    ClientApp->>ServerHandler: HEARTBEAT_REQUEST
+    ServerHandler-->>ClientApp: HEARTBEAT_RESPONSE
+    ServerHandler->>ServerSession: Update last_heartbeat_time
+
+    Note over ClientApp, ServerSession: User Status Update Notification (e.g., on login/logout of another user)
+    ServerHandler->>ClientHandler: USER_STATUS_UPDATE_NOTIFICATION
+    ClientHandler->>ClientApp: Update UI (user status changed)
+
+    Note over ClientApp, ServerSession: Query User Status (Specific Users)
+    ClientApp->>ClientService: query_specific_user_status(user_id)
+    ClientService->>ServerHandler: QUERY_USER_STATUS_REQUEST (target_user_ids=[user_id])
+    ServerHandler->>ServerStorage: get_user_by_user_id(user_id)
+    ServerStorage-->>ServerHandler: User data or None
+    ServerHandler->>ServerSession: get_session_by_user_id(user_id)
+    ServerSession-->>ServerHandler: Session info or None
+    ServerHandler-->>ClientService: QUERY_USER_STATUS_RESPONSE (results)
+    ClientService->>ClientHandler: handle_query_user_status_response(message)
+    ClientHandler->>ClientApp: Update UI (user statuses)
+
+    Note over ClientApp, ServerSession: Query User Status (All Users)
+    ClientApp->>ClientService: query_all_user_status()
+    ClientService->>ServerHandler: QUERY_USER_STATUS_REQUEST (target_user_ids=[])
+    ServerHandler->>ServerStorage: get_all_users()
+    ServerStorage-->>ServerHandler: List of all users
+    ServerHandler->>ServerSession: get_all_sessions()
+    ServerSession-->>ServerHandler: List of all sessions
+    ServerHandler-->>ClientService: QUERY_USER_STATUS_RESPONSE (results for all users)
+    ClientService->>ClientHandler: handle_query_user_status_response(message)
+    ClientHandler->>ClientApp: Update UI (all user statuses)
   `}
 />
 
-## Media Sharing Flow
-
-The following sequence diagram illustrates how media files are shared between users:
+## Private Message Sequence
 
 <MermaidDiagram 
   id="media-sequence" 
   content={`
 sequenceDiagram
-    participant Sender as Sender
-    participant Server as Whisper Server
-    participant Storage as Media Storage
-    participant Recipient as Recipient
-    
-    Sender->>Sender: Select media file
-    Sender->>Sender: Generate encryption key
-    Sender->>Sender: Encrypt media with key
-    
-    Sender->>Server: Request upload URL
-    Server->>Storage: Request temporary URL
-    Storage-->>Server: Return signed URL
-    Server-->>Sender: Return upload URL
-    
-    Sender->>Storage: Upload encrypted media
-    Storage-->>Sender: Confirm upload
-    
-    Sender->>Sender: Create message with media reference and key
-    Sender->>Sender: Encrypt message for recipient
-    Sender->>Server: Send encrypted message
-    
-    Server->>Recipient: Forward encrypted message
-    Recipient->>Recipient: Decrypt message
-    Recipient->>Recipient: Extract media reference and key
-    
-    Recipient->>Storage: Request encrypted media
-    Storage-->>Recipient: Return encrypted media
-    Recipient->>Recipient: Decrypt media with key
-    Recipient->>Recipient: Display media
+    participant SenderApp as Sender Application
+    participant SenderService as Sender PrivateChatService
+    participant SenderHandler as Sender PrivateChatHandler
+    participant ServerHandler as Server PrivateChatHandler
+    participant ServerStorage as Server Storage
+    participant ReceiverHandler as Receiver PrivateChatHandler
+    participant ReceiverApp as Receiver Application
+
+    Note over SenderApp, ReceiverApp: Private Chat Message Exchange
+
+    Note over SenderApp, ReceiverApp: Sending Private Message
+    SenderApp->>SenderService: send_private_chat_message(recipient_id, message)
+    SenderService->>SenderApp: Update UI (optimistic message display)
+    SenderService->>ServerHandler: SEND_PRIVATE_CHAT_MESSAGE_REQUEST (recipient_user_id, content, client_message_id)
+    ServerHandler->>ServerStorage: create_private_chat_message(sender_user_id, recipient_user_id, content)
+    ServerStorage-->>ServerHandler: saved message
+
+    alt Sending Success
+        ServerHandler-->>SenderService: PRIVATE_CHAT_MESSAGE_SENT_ACK (status_message, server_message_id, client_message_id, message_timestamp)
+        SenderService->>SenderHandler: handle_private_chat_message_sent_ack(message)
+        SenderHandler->>SenderApp: Update UI (message delivery status)
+
+        alt Recipient Online
+            ServerHandler->>ReceiverHandler: RECEIVE_PRIVATE_CHAT_MESSAGE_NOTIFICATION (server_message_id, sender_user_id, sender_username, content, message_timestamp)
+            ReceiverHandler->>ReceiverApp: Update UI (new message received)
+        else Recipient Offline
+            Note over ServerHandler, ReceiverHandler: Message stored for later delivery
+        end
+    else Sending Failure
+        ServerHandler-->>SenderService: ERROR_RESPONSE (error_code, error_message)
+        SenderService->>SenderHandler: handle_error_response(message)
+        SenderHandler->>SenderApp: Update UI (message delivery failed)
+    end
+
+    Note over SenderApp, ReceiverApp: Recalling Private Message
+    SenderApp->>SenderService: recall_private_chat_message(recipient_id, server_message_id)
+    SenderService->>ServerHandler: RECALL_PRIVATE_CHAT_MESSAGE_REQUEST (recipient_user_id, server_message_id_to_recall, client_recall_request_id?)
+    ServerHandler->>ServerStorage: delete_private_chat_message(message_id)
+    ServerStorage-->>ServerHandler: success or failure
+
+    alt Recall Success
+        ServerHandler-->>SenderService: PRIVATE_CHAT_MESSAGE_RECALLED_ACK (status=true, status_message, recalled_server_message_id, client_recall_request_id?)
+        SenderService->>SenderHandler: handle_private_chat_message_recall_ack(message)
+        SenderHandler->>SenderApp: Update UI (message recalled)
+
+        alt Recipient Online
+            ServerHandler->>ReceiverHandler: RECEIVE_PRIVATE_CHAT_MESSAGE_RECALL_NOTIFICATION (server_message_id_to_recall, recalled_by_user_id, chat_partner_user_id, recall_timestamp)
+            ReceiverHandler->>ReceiverApp: Update UI (message marked as recalled)
+        end
+    else Recall Failure
+        ServerHandler-->>SenderService: PRIVATE_CHAT_MESSAGE_RECALLED_ACK (status=false, status_message, recalled_server_message_id, client_recall_request_id?)
+        SenderService->>SenderHandler: handle_private_chat_message_recall_ack(message)
+        SenderHandler->>SenderApp: Update UI (message recall failed)
+    end
   `}
+/>
+
+## Group Chat Sequence
+
+<MermaidDiagram 
+  id="group-chat-sequence" 
+  content={`
+sequenceDiagram
+    participant ClientApp as Client Application
+    participant ClientService as Client GroupChatService
+    participant ClientHandler as Client GroupChatHandler
+    participant ServerHandler as Server GroupChatHandler
+    participant ServerStorage as Server Storage
+    participant GroupMembers as Other Group Members
+
+    Note over ClientApp, GroupMembers: Group Creation
+    ClientApp->>ClientService: create_group(name, description)
+    ClientService->>ServerHandler: CREATE_GROUP_REQUEST
+    ServerHandler->>ServerStorage: create_group(group_name, creator_user_id, group_description)
+    ServerStorage-->>ServerHandler: Group object or None
+    alt Creation Success
+        ServerHandler-->>ClientService: CREATE_GROUP_RESPONSE (success=true, group_id, group_name, group_description)
+        ClientService->>ClientHandler: handle_create_group_response(message)
+        ClientHandler->>ClientApp: Update UI (created group details)
+    else Creation Failure
+        ServerHandler-->>ClientService: CREATE_GROUP_RESPONSE (success=false, message)
+        ClientService->>ClientHandler: handle_create_group_response(message)
+        ClientHandler->>ClientApp: Update UI (error message)
+    end
+`}
+/>
+
+<MermaidDiagram 
+  id="group-chat-sequence" 
+  content={`
+sequenceDiagram
+    participant ClientApp as Client Application
+    participant ClientService as Client GroupChatService
+    participant ClientHandler as Client GroupChatHandler
+    participant ServerHandler as Server GroupChatHandler
+    participant ServerStorage as Server Storage
+    participant GroupMembers as Other Group Members
+
+    Note over ClientApp, GroupMembers: Group Information Management
+    ClientApp->>ClientService: update_group_info(group_id, name, description)
+    ClientService->>ServerHandler: UPDATE_GROUP_INFO_REQUEST
+    ServerHandler->>ServerStorage: update_group_info(group_id, group_name, group_description)
+    ServerStorage-->>ServerHandler: success or failure
+    alt Update Success
+        ServerHandler-->>ClientService: UPDATE_GROUP_INFO_RESPONSE (success=true, group_id, group_name, group_description)
+        ServerHandler->>GroupMembers: GROUP_INFO_UPDATED_NOTIFICATION (group_id, updated_by_user_id, updated_by_username, new values)
+        ClientService->>ClientHandler: handle_update_group_info_response(message)
+        ClientHandler->>ClientApp: Update UI (updated group details)
+        GroupMembers->>ClientHandler: handle_group_info_updated_notification(message)
+        ClientHandler->>ClientApp: Update UI for members (updated group details)
+    else Update Failure
+        ServerHandler-->>ClientService: UPDATE_GROUP_INFO_RESPONSE (success=false, message)
+        ClientService->>ClientHandler: handle_update_group_info_response(message)
+        ClientHandler->>ClientApp: Update UI (error message)
+    end
+`}
+/>
+
+<MermaidDiagram 
+  id="group-chat-sequence" 
+  content={`
+sequenceDiagram
+    participant ClientApp as Client Application
+    participant ClientService as Client GroupChatService
+    participant ClientHandler as Client GroupChatHandler
+    participant ServerHandler as Server GroupChatHandler
+    participant ServerStorage as Server Storage
+    participant GroupMembers as Other Group Members
+
+    Note over ClientApp, GroupMembers: Group Membership Management
+
+    Note over ClientApp, GroupMembers: Joining a Group
+    ClientApp->>ClientService: join_group(group_id)
+    ClientService->>ServerHandler: JOIN_GROUP_REQUEST
+    ServerHandler->>ServerStorage: add_user_to_group(group_id, user_id)
+    ServerStorage-->>ServerHandler: success or failure
+    alt Join Success
+        ServerHandler-->>ClientService: JOIN_GROUP_RESPONSE (success=true, group_id, group_name)
+        ServerHandler->>GroupMembers: USER_JOINED_GROUP_NOTIFICATION (group_id, joined_user_id, joined_username)
+        ClientService->>ClientHandler: handle_join_group_response(message)
+        ClientHandler->>ClientApp: Update UI (joined group details)
+        GroupMembers->>ClientHandler: handle_user_joined_group_notification(message)
+        ClientHandler->>ClientApp: Update UI for members (new member)
+    else Join Failure
+        ServerHandler-->>ClientService: JOIN_GROUP_RESPONSE (success=false, message)
+        ClientService->>ClientHandler: handle_join_group_response(message)
+        ClientHandler->>ClientApp: Update UI (error message)
+    end
+
+    Note over ClientApp, GroupMembers: Leaving a Group
+    ClientApp->>ClientService: leave_group(group_id)
+    ClientService->>ServerHandler: LEAVE_GROUP_REQUEST
+    ServerHandler->>ServerStorage: remove_user_from_group(group_id, user_id)
+    ServerStorage-->>ServerHandler: success or failure
+    alt Leave Success
+        ServerHandler-->>ClientService: LEAVE_GROUP_RESPONSE (success=true, group_id)
+        ServerHandler->>GroupMembers: USER_LEFT_GROUP_NOTIFICATION (group_id, left_user_id, left_username)
+        ClientService->>ClientHandler: handle_leave_group_response(message)
+        ClientHandler->>ClientApp: Update UI (removed group)
+        GroupMembers->>ClientHandler: handle_user_left_group_notification(message)
+        ClientHandler->>ClientApp: Update UI for members (removed member)
+    else Leave Failure
+        ServerHandler-->>ClientService: LEAVE_GROUP_RESPONSE (success=false, message)
+        ClientService->>ClientHandler: handle_leave_group_response(message)
+        ClientHandler->>ClientApp: Update UI (error message)
+    end
+
+    Note over ClientApp, GroupMembers: Getting User's Groups
+    ClientApp->>ClientService: get_my_groups()
+    ClientService->>ServerHandler: GET_MY_GROUPS_REQUEST
+    ServerHandler->>ServerStorage: get_user_groups(user_id)
+    ServerStorage-->>ServerHandler: list of groups
+    ServerHandler-->>ClientService: GET_MY_GROUPS_RESPONSE (success, groups[])
+    ClientService->>ClientHandler: handle_get_my_groups_response(message)
+    ClientHandler->>ClientApp: Update UI (list of groups)
+`}
+/>
+
+<MermaidDiagram 
+  id="group-chat-sequence" 
+  content={`
+sequenceDiagram
+    participant SenderApp as Sender Application
+    participant SenderService as Sender GroupChatService
+    participant SenderHandler as Sender GroupChatHandler
+    participant ServerHandler as Server GroupChatHandler
+    participant ServerStorage as Server Storage
+    participant ReceiverHandler as Receiver GroupChatHandler
+    participant ReceiverApp as Receiver Application
+
+    Note over SenderApp, ReceiverApp: Group Message Exchange
+
+    Note over SenderApp, ReceiverApp: Sending Group Message
+    SenderApp->>SenderService: send_group_chat_message(group_id, message)
+    SenderService->>ServerHandler: SEND_GROUP_CHAT_MESSAGE_REQUEST (group_id, content, client_message_id)
+    ServerHandler->>ServerStorage: store_group_message(group_id, sender_id, content)
+    ServerStorage-->>ServerHandler: saved message
+    ServerHandler-->>SenderService: SEND_GROUP_CHAT_MESSAGE_ACK (server_message_id, client_message_id, timestamp)
+    ServerHandler->>ReceiverHandler: RECEIVE_GROUP_CHAT_MESSAGE_NOTIFICATION (group_id, server_message_id, sender details, content, timestamp)
+    SenderService->>SenderHandler: handle_group_chat_message_sent_ack(message)
+    SenderHandler->>SenderApp: Update UI (sent message status)
+    ReceiverHandler->>ReceiverApp: Update UI (new message)
+
+    Note over SenderApp, ReceiverApp: Recalling Group Message
+    SenderApp->>SenderService: recall_group_chat_message(group_id, server_message_id)
+    SenderService->>ServerHandler: RECALL_GROUP_CHAT_MESSAGE_REQUEST (group_id, server_message_id_to_recall)
+    ServerHandler->>ServerStorage: mark_message_as_recalled(message_id)
+    ServerStorage-->>ServerHandler: success or failure
+    alt Recall Success
+        ServerHandler-->>SenderService: GROUP_CHAT_MESSAGE_RECALLED_ACK (status_code=200, recalled_server_message_id)
+        ServerHandler->>ReceiverHandler: GROUP_CHAT_MESSAGE_RECALL_NOTIFICATION (group_id, recalled_server_message_id, recalled_by_user_id, timestamp)
+        SenderService->>SenderHandler: handle_group_chat_message_recall_ack(message)
+        SenderHandler->>SenderApp: Update UI (message recalled)
+        ReceiverHandler->>ReceiverApp: Update UI (message marked as recalled)
+    else Recall Failure
+        ServerHandler-->>SenderService: GROUP_CHAT_MESSAGE_RECALLED_ACK (status_code=4xx, error message)
+        SenderService->>SenderHandler: handle_group_chat_message_recall_ack(message)
+        SenderHandler->>SenderApp: Update UI (recall failed)
+    end
+`}
 />
 
 export default ({ children }) => (

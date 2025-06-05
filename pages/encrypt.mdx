@@ -1,0 +1,176 @@
+import MermaidDiagram from '../components/MermaidDiagram'
+
+# 一对一聊天 (Private Chat with Signal Protocol)
+
+## 概述
+
+本部分详细阐述了基于 Signal 协议的端到端加密（E2EE）私聊机制。它首先通过 **X3DH (Extended Triple Diffie-Hellman) 密钥协商协议**在通信双方（例如 Alice 和 Bob）之间安全地建立一个初始共享密钥 `SK`。随后，此 `SK` 将用于初始化**双棘轮 (Double Ratchet) 算法**，为后续的持续通信提供前向保密和后向保密（或称破坏后恢复安全）。
+
+**核心密钥类型回顾：**
+
+-   **身份密钥 (IK)**: 每个用户拥有一对长期的 **Ed25519** 密钥对。`IK_pub` 用于身份声明和验证签名预共享密钥 (SPK)；`IK_priv` 用于签名 SPK。在 X3DH 中，当 IK 需要参与 DH 运算时，其公钥会被转换为 X25519 形式，其私钥会以对应的 X25519 私钥标量形式参与。
+-   **签名预共享密钥 (SPK)**: 一对中期的 **X25519** 密钥对，其公钥被 IK 签名。
+-   **一次性预共享密钥 (OPK)**: 一批一次性的 **X25519** 密钥对。
+-   **临时密钥 (EK)**: 由会话发起方（Alice）为单次 X3DH 交换生成的 **X25519** 密钥对。
+
+### 流程详解
+
+<MermaidDiagram 
+  id="private-chat-sequence" 
+  content={`
+sequenceDiagram
+    participant AliceClient as Alice客户端
+    participant Server as 服务器
+    participant BobClient as Bob客户端
+
+    %% --- Bob's Setup Phase ---
+    Note over BobClient, Server: 阶段0: Bob的设置与公钥包上传
+    BobClient->>BobClient: 生成IK_B (Ed25519), SPK_B (X25519), OPKs_B (X25519)
+    BobClient->>BobClient: 用IK_B_priv签名SPK_B_pub得到Signature_SPK_B
+    BobClient->>+Server: UPLOAD_PREKEY_BUNDLE_REQUEST <br> (含IK_B_Ed25519_pub, <br> SPK_B_X25519_pub + ID, <br> Signature_SPK_B, <br> OPKs_B_X25519_pub_list + IDs)
+    Server-->>-BobClient: UPLOAD_PREKEY_BUNDLE_RESPONSE (成功)
+
+    %% --- Alice Initiates Chat with Bob ---
+    Note over AliceClient, Server: 阶段1: Alice 获取 Bob 的公钥包
+    AliceClient->>+Server: GET_PREKEY_BUNDLE_REQUEST (请求Bob的公钥包)
+    Server-->>-AliceClient: GET_PREKEY_BUNDLE_RESPONSE <br> (含Bob的IK_B_Ed25519_pub, <br> SPK_B_X25519_pub + ID, <br> Signature_SPK_B, <br> 一个OPK_B_X25519_pub + ID (如果可用))
+    Server->>Server: (标记Bob的此OPK为已使用)
+
+    Note over AliceClient: 阶段2: Alice 计算共享密钥(SK)
+    AliceClient->>AliceClient: 验证SPK_B的签名 (使用IK_B_Ed25519_pub)
+    AliceClient->>AliceClient: 生成自己的临时密钥EK_A (X25519)
+    AliceClient->>AliceClient: 转换IK_B_Ed25519_pub为IK_B_X25519_pub_form
+    AliceClient->>AliceClient: 执行X3DH运算 (用IK_A_X25519_priv_form, EK_A_priv与Bob的公钥) 得到DH1,DH2,DH3,DH4
+    AliceClient->>AliceClient: IKM = F || DH1 || DH2 || DH3 || DH4
+    AliceClient->>AliceClient: SK = HKDF(IKM)
+    AliceClient->>AliceClient: MK_initial = KDF_MsgKey(SK)
+    AliceClient->>AliceClient: Ciphertext_initial = Encrypt(MK_initial, 原始消息_A)
+
+    Note over AliceClient, Server: 阶段3: Alice 发送初始消息给服务器
+    AliceClient->>+Server: SEND_PRIVATE_MESSAGE_REQUEST <br> (收件人:Bob, content: { <br> type: "prekey", <br> body: Ciphertext_initial_b64, <br> IK_A_Ed25519_pub_b64, <br> EK_A_X25519_pub_b64, <br> SPK_B_id_used, <br> OPK_B_id_used (如果使用) <br> })
+    Server-->>-AliceClient: MESSAGE_SENT_ACK
+
+    %% --- Bob Receives and Establishes Session ---
+    Note over Server, BobClient: 阶段4: 服务器转发初始消息给 Bob
+    Server->>+BobClient: RECEIVE_PRIVATE_MESSAGE_NOTIFICATION <br> (来自Alice, content: { type:"prekey", ...同上... })
+
+    Note over BobClient: 阶段5: Bob 计算共享密钥(SK)并解密
+    BobClient->>BobClient: 提取Alice的IK_A_Ed25519_pub, EK_A_X25519_pub
+    BobClient->>BobClient: 转换IK_A_Ed25519_pub为IK_A_X25519_pub_form
+    BobClient->>BobClient: 获取自己的IK_B_X25519_priv_form, SPK_B_priv (据ID), OPK_B_priv (据ID, 并删除此OPK)
+    BobClient->>BobClient: 执行X3DH运算得到DH1,DH2,DH3,DH4
+    BobClient->>BobClient: IKM = F || DH1 || DH2 || DH3 || DH4
+    BobClient->>BobClient: SK = HKDF(IKM) (与Alice的SK相同)
+    BobClient->>BobClient: MK_initial = KDF_MsgKey(SK)
+    BobClient->>BobClient: 原始消息_A = Decrypt(MK_initial, Ciphertext_initial_from_body)
+
+    Note over AliceClient, BobClient: 阶段6: 双棘轮初始化和后续通信
+    AliceClient->>AliceClient: 使用SK和Bob的SPK_B_pub(或OPK_B_pub)初始化Alice的发送棘轮和Bob的接收棘轮
+    BobClient->>BobClient: 使用SK和Alice的EK_A_pub初始化Bob的发送棘轮和Alice的接收棘轮
+    BobClient->>BobClient: Bob生成新的DHR_B用于回复
+    BobClient->>AliceClient: (通过服务器) 发送第一条棘轮消息 (包含DHR_B_pub)
+    AliceClient->>BobClient: (通过服务器) 后续棘轮消息
+`}
+/>
+
+### 阶段 0: Bob 的设置与公钥包上传 (一次性或不经常进行)
+
+在 Alice 能够联系 Bob 之前，Bob 的客户端（例如通过 `SignalKeyStore` 和 `SignalProtocolManager`）需要完成以下操作：
+
+1.  **生成各类密钥对**：
+
+    -   **身份密钥对 (IK_B)**：一对长期的 `Ed25519PrivateKey` 和 `Ed25519PublicKey`。
+    -   (为了 X3DH) Bob 的客户端还需要能够从 `IK_B_Ed25519_priv` 的种子派生出对应的 **X25519 私钥标量** (`IK_B_X25519_priv_scalar`)。
+    -   **签名预共享密钥对 (SPK_B)**：一对中期的 `X25519PrivateKey` 和 `X25519PublicKey`，并为其分配一个整数 ID (`SPK_B_id`)。
+    -   **对 SPK_B 的签名**：使用 `IK_B_Ed25519_priv` 对 `SPK_B_X25519_pub` 的字节进行签名，得到 `Signature_SPK_B`。
+    -   **一次性预共享密钥对 (OPK_B)**：生成一批（例如 100 个）一次性的 `X25519PrivateKey` 和 `X25519PublicKey` 对，并为每个公钥分配一个唯一的整数 ID (`OPK_B_i_id`)。
+
+2.  **上传公钥包至服务器**：Bob 的客户端将以下公钥信息打包发送给服务器存储。服务器**绝不存储任何私钥**。
+    -   `IK_B_Ed25519_pub` (Bob 的 Ed25519 公共身份密钥)
+    -   `SPK_B_X25519_pub` (Bob 的 X25519 公共签名预共享密钥)
+    -   `SPK_B_id`
+    -   `Signature_SPK_B` (对 SPK_B_pub 的签名)
+    -   一个列表，包含所有公共一次性预共享密钥 (`OPK_B_i_X25519_pub`) 及其对应的 `OPK_B_i_id`。
+
+### 阶段 1: Alice 获取 Bob 的公钥包
+
+当 Alice 想要和 Bob 开始加密聊天时：
+
+1.  Alice 的客户端向服务器请求 Bob 的公共预共享密钥包。
+2.  服务器查找 Bob 的记录，并执行以下操作：
+    -   提取 Bob 的 `IK_B_Ed25519_pub`, `SPK_B_X25519_pub`, `SPK_B_id`, 和 `Signature_SPK_B`。
+    -   从 Bob 的可用 OPK 列表中选择一个 `OPK_B_X25519_pub` 及其 `OPK_B_id`（如果还有可用的话）。
+    -   将这个被选中的 OPK 从 Bob 的可用列表中移除或标记为已使用。
+    -   将上述所有公钥信息返回给 Alice 的客户端。
+
+### 阶段 2: Alice 计算共享密钥(SK)
+
+Alice 的客户端（例如其内部的 `X3DHProtocol` 模块）现在拥有：
+
+-   她自己的密钥：`IK_A_Ed25519_priv` (及其对应的 `IK_A_X25519_priv_scalar`)。
+-   Bob 的公钥包中的信息。
+
+Alice 执行以下步骤：
+
+1.  **验证 Bob 的 SPK 签名**：Alice 使用获取到的 `IK_B_Ed25519_pub` 来验证 `Signature_SPK_B` 对于 `SPK_B_X25519_pub` 的有效性。如果签名无效，则流程中止，因为 Bob 的密钥包可能已被篡改或来源不可信。
+2.  **生成 Alice 的临时密钥 (EK_A)**：Alice 生成一对全新的 X25519 临时密钥对 (`EK_A_X25519_priv`, `EK_A_X25519_pub`)，仅用于本次会话建立。
+3.  **进行公钥转换**：Alice 使用你实现的转换函数，将从 Bob 密钥包中获取的 `IK_B_Ed25519_pub` 转换为其对应的 **X25519 公钥形式** (`IK_B_X25519_pub_form`)。
+4.  **执行 X3DH 运算**：
+    -   `DH1 = X25519(IK_A_X25519_priv_scalar, SPK_B_X25519_pub)`
+    -   `DH2 = X25519(EK_A_X25519_priv, IK_B_X25519_pub_form)`
+    -   `DH3 = X25519(EK_A_X25519_priv, SPK_B_X25519_pub)`
+    -   `DH4 = X25519(EK_A_X25519_priv, OPK_B_X25519_pub)` (如果 Bob 提供了 OPK 并且 Alice 使用了它)
+5.  **构造输入密钥材料 (IKM)**：Alice 将一个标准定义的固定前缀字节串 `F`（例如 32 个 `\xff` 字节）与上述 DH 运算结果按照 Signal 协议规定的**固定顺序**拼接起来：
+    `IKM = F || DH1 || DH2 || DH3 || DH4` (如果 DH4 不存在则不包含)。
+6.  **派生共享密钥 (SK)**：Alice 使用 HKDF（基于 HMAC 的密钥派生函数）从 IKM 派生出最终的 32 字节共享密钥 `SK`。HKDF 的 salt 和 info 参数也应使用 Signal 协议规范中的标准值。
+    `SK = HKDF(salt_spec, IKM, info_spec, 32)`
+7.  **派生初始消息密钥 (MK_initial)**：通常，`SK` 不会直接用于加密第一条消息，而是会再次通过 KDF（例如 HKDF 的扩展阶段，使用不同的 info）派生出一个或多个用于实际加密的初始消息密钥和相关的认证数据密钥。为简化，我们称之为 `MK_initial`。
+8.  **加密第一条消息**：Alice 使用 `MK_initial` 和 AEAD 对称加密算法（如 AES-GCM，为每条消息使用唯一的 Nonce）加密她的第一条消息，得到密文。
+
+### 阶段 3: Alice 发送初始消息给服务器
+
+Alice 的客户端构建一个初始的“预共享密钥消息”（PreKey Message）。根据我们之前讨论的协议，这会是一个 `MessageContent` 对象，其 `type` 字段为 `"prekey"`。该对象的 `body` 包含加密后的第一条消息密文，并且对象内部还需要包含以下**由 Alice 提供的、Bob 建立会话所需的公钥信息和 ID**：
+
+-   `sender_identity_public_key`: Alice 的 `IK_A_Ed25519_pub` (Base64 编码)。Bob 需要用它来（在未来，如果 Alice 也发布 SPK）验证 Alice 的密钥。
+-   `sender_ephemeral_public_key`: Alice 的 `EK_A_X25519_pub` (Base64 编码)。Bob 的核心 DH 运算需要它。
+-   `recipient_signed_pre_key_id`: Alice 所使用的 Bob 的 `SPK_B_id`。
+-   `recipient_one_time_pre_key_id`: Alice 所使用的 Bob 的 `OPK_B_id`（如果使用了）。
+
+Alice 将此 `MessageContent` 对象包装在 `SEND_PRIVATE_MESSAGE_REQUEST` 中发送给服务器，服务器简单地将此请求的 `payload.content` 部分转发给 Bob。
+
+### 阶段 4 & 5: Bob 接收初始消息，计算 SK，并解密
+
+Bob 的客户端收到服务器转发来的包含上述 `type="prekey"` 的 `MessageContent` 对象。
+
+1.  **提取信息**：Bob 从消息中提取出 Alice 的 `IK_A_Ed25519_pub`、`EK_A_X25519_pub`，以及他自己被 Alice 使用的 `SPK_B_id_used` 和 `OPK_B_id_used`。
+2.  **获取自己的私钥**：Bob 的客户端从其本地 `SignalKeyStore` 中获取：
+    -   他自己的 `IK_B_Ed25519_priv`（并从中派生出 `IK_B_X25519_priv_scalar`）。
+    -   与 `SPK_B_id_used` 对应的 `SPK_B_X25519_priv`。
+    -   如果 `OPK_B_id_used` 存在，获取对应的 `OPK_B_X25519_priv`。获取后，Bob 的客户端应将此 OPK 从可用池中永久删除。
+3.  **进行公钥转换**：Bob 使用你实现的转换函数，将消息中 Alice 的 `IK_A_Ed25519_pub` 转换为其对应的 **X25519 公钥形式** (`IK_A_X25519_pub_form`)。
+4.  **执行 X3DH 运算**：Bob 使用自己的私钥和 Alice 的公钥（包括转换后的`IK_A_X25519_pub_form`和`EK_A_X25519_pub`）进行与 Alice 完全相同的四组（或三组）DH 运算。
+5.  **构造 IKM 并派生 SK**：Bob 按照与 Alice**完全相同的固定顺序和前缀 F**拼接 DH 结果，得到 IKM，然后使用**完全相同的 HKDF 参数**派生出共享密钥 `SK`。
+    -   **此时，Bob 计算出的 `SK` 将与 Alice 计算出的 `SK` 完全一致！**
+6.  **派生并使用初始消息密钥解密**：Bob 同样从 `SK` 派生出 `MK_initial`，然后用它解密 `MessageContent.body` 中的密文，得到 Alice 发送的第一条明文消息。
+
+### 阶段 6: 双棘轮初始化和后续通信
+
+一旦双方都拥有了相同的共享密钥 `SK`，他们就可以用它来初始化双棘轮会话状态。
+
+-   **`SK` 作为第一个根密钥 (RootKey, RK0)**。
+-   **Alice 的初始状态**：
+    -   她的第一个发送棘轮公钥（`DHRs_A`）就是她在 X3DH 中生成的 `EK_A_X25519_pub`。
+    -   她需要 Bob 的初始棘轮公钥来初始化她的接收链。Bob 的这个公钥将在 Bob 的第一条回复消息中携带。在收到 Bob 的回复前，Alice 的接收链是基于 `DH(IK_A_X_form, Bob的被选PreKey_pub)` 或 `DH(EK_A_priv, Bob的被选PreKey_pub)` 等（具体取决于 Signal 棘轮的精确初始化步骤，通常是基于 Bob 的 SPK 或 OPK）。
+-   **Bob 的初始状态**：
+    -   他收到了 Alice 的 `EK_A_X25519_pub`，这成为他的第一个**接收棘轮公钥 (`DHRrcv_A`)**。
+    -   为了回复 Alice，Bob 会生成他自己的**第一个发送棘轮密钥对 (`DHRs_B_pair`)**。其公钥 `DHRs_B_pub` 将包含在他发送给 Alice 的第一条棘轮消息中。
+    -   然后，Bob 使用 `RK0` (即`SK`) 和 `DH(DHRs_B_priv, DHRrcv_A)` 的结果，通过 KDF 派生出他自己的初始发送链密钥 (CKs_B) 和接收链密钥 (CKr_B)。
+
+**“棘轮状态同步”的关键在于：**
+
+-   双方通过 X3DH 安全地协商出相同的 `SK`。
+-   `SK` 作为双棘轮的第一个根密钥。
+-   双方都知道对方用于开始双棘轮的第一个棘轮公钥（Alice 的是她的`EK_A_pub`，Bob 则在他回复第一条消息时生成并发送他自己的第一个棘轮公钥 `DHRs_B_pub`）。
+-   基于这些信息，双方各自初始化发送链和接收链，双棘轮开始运作。之后，每条消息的发送和接收都会驱动棘轮前进，不断生成新的消息密钥。
+
+这个过程确保了即使初始的 `SK` 或某个阶段的密钥泄露，由于棘轮机制（特别是 DH 棘轮），未来的消息仍能保持其机密性（前向保密），并且过去的通信在一定程度上也能得到保护。实现这些需要对 Signal 协议规范的精确理解和严谨编程。
